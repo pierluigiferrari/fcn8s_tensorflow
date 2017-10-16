@@ -13,6 +13,7 @@ from math import ceil
 import time
 
 from tf_variable_summaries import add_variable_summaries
+from visualization_utils import print_segmentation_onto_image
 
 class FCN8s:
 
@@ -585,7 +586,7 @@ class FCN8s:
             images_dir (string): The directory in which the images to be processed are located.
             image_size (tuple): A tuple of the form `(image_height, image_width)` that
                 represents the size to which all images will be resized.
-            annonation_map (dictionary): A Python dictionary whose keys are non-negative
+            color_map (dictionary): A Python dictionary whose keys are non-negative
                 integers representing segmentation classes and whose values are 1D tuples
                 (or lists, Numpy arrays) of length 4 that represent the RGBA color values
                 in which the respective classes are to be annotated. For example, if the
@@ -614,24 +615,11 @@ class FCN8s:
             filepath = image_filepath_list[i]
             image = scipy.misc.imresize(scipy.misc.imread(filepath), image_size)
 
-            image_softmax = self.sess.run(self.softmax_output,
-                                          feed_dict={self.image_input: [image],
-                                                     self.keep_prob: 1.0})
+            prediction = self.sess.run(self.softmax_output,
+                                       feed_dict={self.image_input: [image],
+                                                  self.keep_prob: 1.0})
 
-            # Create a template of shape `(image_height, image_width, 4)` to store RGBA values.
-            mask = np.zeros(shape=(image_size[0], image_size[1], 4), dtype=np.uint8)
-            segmentation_map = np.squeeze(np.argmax(image_softmax, axis=-1))
-
-            # Loop over all segmentation classes that are to be annotated and put their
-            # color value at the respective image pixel.
-            for segmentation_class, color_value in color_map.items():
-
-                mask[segmentation_map == segmentation_class] = color_value
-
-            mask = scipy.misc.toimage(mask, mode="RGBA")
-
-            output_image = scipy.misc.toimage(image)
-            output_image.paste(mask, box=None, mask=mask) # See http://effbot.org/imagingbook/image.htm#tag-Image.Image.paste for details.
+            output_image = print_segmentation_onto_image(image, prediction, color_map)
 
             scipy.misc.imsave(os.path.join(output_dir, os.path.basename(filepath)), output_image)
 
