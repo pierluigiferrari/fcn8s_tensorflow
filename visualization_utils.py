@@ -8,7 +8,7 @@ def print_segmentation_onto_image(image, prediction, color_map):
     Arguments:
         image (array-like): A 3-channel image onto which to print the segmentation
             from `prediction`.
-        prediction (array-like): A rank-3 array that is the segmentation prediction
+        prediction (array-like): A rank-4 array that is the segmentation prediction
             with the same spatial dimensions as `image`. The last axis contains the
             segmentation classes in one-hot format.
         color_map (dictionary): A Python dictionary whose keys are non-negative
@@ -26,8 +26,8 @@ def print_segmentation_onto_image(image, prediction, color_map):
         ValueError if the spatial dimensions of `image` and `prediction` don't match.
     '''
 
-    if (image.shape[0] != prediction.shape[0]) or (image.shape[1] != prediction.shape[1]):
-        raise ValueError("'image' and 'prediction' must have the same height and width, but image has spatial dimensions ({}, {}) and prediction has spatial dimensions ({}, {}).".format(image.shape[0], image.shape[1], prediction.shape[0], prediction.shape[1]))
+    if (image.shape[0] != prediction.shape[1]) or (image.shape[1] != prediction.shape[2]):
+        raise ValueError("'image' and 'prediction' must have the same height and width, but image has spatial dimensions ({}, {}) and prediction has spatial dimensions ({}, {}).".format(image.shape[0], image.shape[1], prediction.shape[1], prediction.shape[2]))
 
     image_size = image.shape
 
