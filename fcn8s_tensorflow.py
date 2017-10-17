@@ -9,7 +9,6 @@ import shutil
 from glob import glob
 from collections import deque
 import numpy as np
-from math import ceil
 import time
 
 from tf_variable_summaries import add_variable_summaries
@@ -294,25 +293,20 @@ class FCN8s:
 
     def _build_summary_ops(self):
 
-        variable_list = []
-
         graph = tf.get_default_graph()
 
-        variable_list.append(graph.get_tensor_by_name('pool3_1x1/kernel:0'))
-        variable_list.append(graph.get_tensor_by_name('pool3_1x1/bias:0'))
-        variable_list.append(graph.get_tensor_by_name('pool4_1x1/kernel:0'))
-        variable_list.append(graph.get_tensor_by_name('pool4_1x1/bias:0'))
-        variable_list.append(graph.get_tensor_by_name('fc7_1x1/kernel:0'))
-        variable_list.append(graph.get_tensor_by_name('fc7_1x1/bias:0'))
-        variable_list.append(graph.get_tensor_by_name('fc7_conv2d_trans/kernel:0'))
-        variable_list.append(graph.get_tensor_by_name('fc7_conv2d_trans/bias:0'))
-        variable_list.append(graph.get_tensor_by_name('fc7_pool4_conv2d_trans/kernel:0'))
-        variable_list.append(graph.get_tensor_by_name('fc7_pool4_conv2d_trans/bias:0'))
-        variable_list.append(graph.get_tensor_by_name('fc7_pool4_pool3_conv2d_trans/kernel:0'))
-        variable_list.append(graph.get_tensor_by_name('fc7_pool4_pool3_conv2d_trans/bias:0'))
-
-        for variable in variable_list:
-            add_variable_summaries(variable)
+        add_variable_summaries(variable=graph.get_tensor_by_name('pool3_1x1/kernel:0'), scope='pool3_1x1/kernel')
+        add_variable_summaries(variable=graph.get_tensor_by_name('pool3_1x1/bias:0'), scope='pool3_1x1/bias')
+        add_variable_summaries(variable=graph.get_tensor_by_name('pool4_1x1/kernel:0'), scope='pool4_1x1/kernel')
+        add_variable_summaries(variable=graph.get_tensor_by_name('pool4_1x1/bias:0'), scope='pool4_1x1/bias')
+        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_1x1/kernel:0'), scope='fc7_1x1/kernel')
+        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_1x1/bias:0'), scope='fc7_1x1/bias')
+        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_conv2d_trans/kernel:0'), scope='fc7_conv2d_trans/kernel')
+        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_conv2d_trans/bias:0'), scope='fc7_conv2d_trans/bias')
+        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_pool4_conv2d_trans/kernel:0'), scope='fc7_pool4_conv2d_trans/kernel')
+        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_pool4_conv2d_trans/bias:0'), scope='fc7_pool4_conv2d_trans/bias')
+        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_pool4_pool3_conv2d_trans/kernel:0'), scope='fc7_pool4_pool3_conv2d_trans/kernel')
+        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_pool4_pool3_conv2d_trans/bias:0'), scope='fc7_pool4_pool3_conv2d_trans/bias')
 
         # Loss and learning rate.
         tf.summary.scalar('loss', self.loss)
@@ -353,6 +347,7 @@ class FCN8s:
               record_summaries=True,
               summaries_frequency=10,
               summaries_dir=None,
+              summaries_name=None,
               training_loss_display_averaging=3):
 
         # Check for a GPU
@@ -381,10 +376,10 @@ class FCN8s:
 
         # Set up the summary file writers.
         if record_summaries:
-            training_writer = tf.summary.FileWriter(logdir=os.path.join(summaries_dir, 'training'),
+            training_writer = tf.summary.FileWriter(logdir=os.path.join(summaries_dir, summaries_name),
                                                     graph=self.sess.graph)
             if len(metrics) > 0:
-                evaluation_writer = tf.summary.FileWriter(logdir=os.path.join(summaries_dir, 'evaluation'))
+                evaluation_writer = tf.summary.FileWriter(logdir=os.path.join(summaries_dir, summaries_name+'_eval'))
 
         for epoch in range(1, epochs+1):
 
@@ -499,7 +494,18 @@ class FCN8s:
                     if self.metric_values[i] < self.best_metric_values[i]:
                         self.best_metric_values[i] = self.metric_values[i]
 
-    def _evaluate(self, data_generator, metrics, num_batches, description):
+    def _evaluate(self, data_generator, metrics, num_batches, description='Running evaluation'):
+        '''
+        Internal method used by both `evaluate()` and `train()` that performs
+        the actual evaluation. For the first three arguments, please refer
+        to the documentation of the public `evaluate()` method.
+
+        Arguments:
+            description (string, optional): A description string that will be prepended
+                to the progress bar while the evaluation is being processed. During
+                training, this description is used to clarify whether the evaluation
+                is being performed on the training or validation dataset.
+        '''
 
         # Reset all metrics' accumulator variables.
         self.sess.run(self.metrics_reset_op)
