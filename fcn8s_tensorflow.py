@@ -150,40 +150,47 @@ class FCN8s:
             the spatial dimensions of the output are the same as those of the input images.
         '''
 
-        # 1: Append 1x1 convolutions to the three output layers of the encoder to reduce the Number
-        #    of channels to the number of classes.
+        stddev_1x1 = 0.001 # Standard deviation for the 1x1 kernel initializers
+        stddev_conv2d_trans = 0.01 # Standard deviation for the convolution transpose kernel initializers
+        l2reg = 0.001 # L2 regularization rate for the kernels
 
         with tf.name_scope('decoder'):
 
-            pool3_1x1 = tf.layers.conv2d(inputs=self.pool3_out,
-                                         filters=self.num_classes,
-                                         kernel_size=(1, 1),
-                                         strides=(1, 1),
-                                         padding='same',
-                                         kernel_initializer=tf.truncated_normal_initializer(stddev=0.01),
-                                         kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3),
-                                         name='pool3_1x1')
-            #pool3_elu = tf.nn.elu(pool3_1x1, name='pool3_elu')
+            # 1: Append 1x1 convolutions to the three output layers of the encoder to reduce the Number
+            #    of channels to the number of classes.
 
-            pool4_1x1 = tf.layers.conv2d(inputs=self.pool4_out,
+            # The outputs of pool3 and pool4 are being scaled in what the authors of
+            # the paper call the at-once training approach.
+            pool3_out_scaled = tf.multiply(self.pool3_out, 0.0001, name='pool3_out_scaled')
+
+            pool3_1x1 = tf.layers.conv2d(inputs=pool3_out_scaled,
                                          filters=self.num_classes,
                                          kernel_size=(1, 1),
                                          strides=(1, 1),
                                          padding='same',
-                                         kernel_initializer=tf.truncated_normal_initializer(stddev=0.01),
-                                         kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3),
+                                         kernel_initializer=tf.truncated_normal_initializer(stddev=stddev_1x1),
+                                         kernel_regularizer=tf.contrib.layers.l2_regularizer(l2reg),
+                                         name='pool3_1x1')
+
+            pool4_out_scaled = tf.multiply(self.pool4_out, 0.01, name='pool4_out_scaled')
+
+            pool4_1x1 = tf.layers.conv2d(inputs=pool4_out_scaled,
+                                         filters=self.num_classes,
+                                         kernel_size=(1, 1),
+                                         strides=(1, 1),
+                                         padding='same',
+                                         kernel_initializer=tf.truncated_normal_initializer(stddev=stddev_1x1),
+                                         kernel_regularizer=tf.contrib.layers.l2_regularizer(l2reg),
                                          name='pool4_1x1')
-            #pool4_elu = tf.nn.elu(pool4_1x1, name='pool4_elu')
 
             fc7_1x1 = tf.layers.conv2d(inputs=self.fc7_out,
                                        filters=self.num_classes,
                                        kernel_size=(1, 1),
                                        strides=(1, 1),
                                        padding='same',
-                                       kernel_initializer=tf.truncated_normal_initializer(stddev=0.01),
-                                       kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3),
+                                       kernel_initializer=tf.truncated_normal_initializer(stddev=stddev_1x1),
+                                       kernel_regularizer=tf.contrib.layers.l2_regularizer(l2reg),
                                        name='fc7_1x1')
-            #fc7_elu = tf.nn.elu(fc7_1x1, name='fc7_elu')
 
             # 2: Upscale and fuse until we're back at the original image size.
 
@@ -192,8 +199,8 @@ class FCN8s:
                                                           kernel_size=(4, 4),
                                                           strides=(2, 2),
                                                           padding='same',
-                                                          kernel_initializer=tf.truncated_normal_initializer(stddev=0.01),
-                                                          kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3),
+                                                          kernel_initializer=tf.truncated_normal_initializer(stddev=stddev_conv2d_trans),
+                                                          kernel_regularizer=tf.contrib.layers.l2_regularizer(l2reg),
                                                           name='fc7_conv2d_trans')
 
             add_fc7_pool4 = tf.add(fc7_conv2d_trans, pool4_1x1, name='add_fc7_pool4')
@@ -203,8 +210,8 @@ class FCN8s:
                                                                 kernel_size=(4, 4),
                                                                 strides=(2, 2),
                                                                 padding='same',
-                                                                kernel_initializer=tf.truncated_normal_initializer(stddev=0.01),
-                                                                kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3),
+                                                                kernel_initializer=tf.truncated_normal_initializer(stddev=stddev_conv2d_trans),
+                                                                kernel_regularizer=tf.contrib.layers.l2_regularizer(l2reg),
                                                                 name='fc7_pool4_conv2d_trans')
 
             add_fc7_pool4_pool3 = tf.add(fc7_pool4_conv2d_trans, pool3_1x1, name='add_fc7_pool4_pool3')
@@ -214,8 +221,8 @@ class FCN8s:
                                                                       kernel_size=(16, 16),
                                                                       strides=(8, 8),
                                                                       padding='same',
-                                                                      kernel_initializer=tf.truncated_normal_initializer(stddev=0.01),
-                                                                      kernel_regularizer=tf.contrib.layers.l2_regularizer(1e-3),
+                                                                      kernel_initializer=tf.truncated_normal_initializer(stddev=stddev_conv2d_trans),
+                                                                      kernel_regularizer=tf.contrib.layers.l2_regularizer(l2reg),
                                                                       name='fc7_pool4_pool3_conv2d_trans')
 
             fcn8s_output = tf.identity(fc7_pool4_pool3_conv2d_trans, name='fcn8s_output')
@@ -337,7 +344,7 @@ class FCN8s:
               eval_frequency=5,
               val_generator=None,
               val_steps=None,
-              metrics=[],
+              metrics={},
               save_during_training=False,
               save_dir=None,
               save_best_only=True,
