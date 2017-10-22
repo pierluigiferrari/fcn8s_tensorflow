@@ -1,110 +1,11 @@
 import numpy as np
-import re
 import random
 import os
 import scipy.misc
 import cv2
 from glob import glob
 
-def batch_generator(batch_size,
-                    dataset_rootdir,
-                    images_subdir,
-                    labels_subdir,
-                    image_size,
-                    flip=False):
-        """
-        Generates batches of iamges and corresponding labels indefinitely.
-
-        Returns a tuple of two Numpy arrays, one containing the next `batch_size`
-        images, the other containing the corresponding labels.
-
-        Shuffles images and labels consistently after each complete pass.
-
-        Arguments:
-            batch_size (int): The number of samples per batch.
-            dataset_rootdir (string): The root directory of the dataset. Both the
-                images and the labels must be located in some sub-directory of
-                this directory. Trailing slashes do not matter.
-            images_subdir (string): The sub-directory within the dataset root
-                directory within which the images are located. Leading or trailing
-                slashes do not matter.
-            labels_subdir (string): `None` or the sub-directory within the dataset
-                root directory in which the labels are located. Leading or
-                trailing slashes do not matter.
-            image_size (tuple): A tuple that represents the size to which all
-                images will be resized in the format `(height, width)`.
-
-        """
-
-        image_paths = glob(os.path.join(dataset_rootdir, images_subdir, '*.png'))
-        if not labels_subdir is None:
-            label_paths = {re.sub(r'_road_', '_', os.path.basename(path)): path
-                           for path in glob(os.path.join(dataset_rootdir, labels_subdir, '*_road_*.png'))}
-
-        # The background color for the labels in the KITTI road dataset.
-        background_color = np.array([255, 0, 0])
-
-        random.shuffle(image_paths)
-
-        current = 0
-
-        while True:
-
-            # Store the new batch here
-            images = []
-            labels = []
-
-            # Shuffle data after each complete pass
-            if current >= len(image_paths):
-                random.shuffle(image_paths)
-                current = 0
-
-            # Load the images and labels for this batch
-            for image_path in image_paths[current:current+batch_size]: # Careful: This works in Python, but might cause an 'index out of bounds' error in other languages if `current+batch_size > len(image_paths)`
-
-                # Load the images
-
-                # TODO: Images shouldn't be resized here. This is just a quick and
-                #       dirty solution until batch generation and image manipulation
-                #       will be separated properly (and random crops are a lot better
-                #       in many cases than resizing).
-                image = scipy.misc.imresize(scipy.misc.imread(image_path), image_size)
-                images.append(image)
-
-                # If a label path was given, load the labels
-                if not labels_subdir is None:
-
-                    label_path = label_paths[os.path.basename(image_path)]
-                    label = scipy.misc.imresize(scipy.misc.imread(label_path), image_size)
-
-                    # Process the labels:
-                    # Convert the RGB label images to boolean arrays where background = false and road = true.
-                    label_background = np.all(label == background_color, axis=2) # Array of shape (height, width) where every background pixel is `True`.
-                    label_background = np.expand_dims(label_background, -1) # Array of shape (height, width, 1).
-                    label = np.concatenate((label_background, np.invert(label_background)), axis=2) # Array of shap (height, width, 2) where the first channel is for the background pixels and the second for the road pixels.
-
-                    labels.append(label)
-
-            current += batch_size
-
-            # At this point we're done producing the batch. Now perform some
-            # optional image transformations:
-
-            for i in range(len(images)):
-
-                img_height, img_width, ch = images[i].shape # Get the dimensions of this image.
-
-                if flip:
-                    p = np.random.uniform(0,1)
-                    if p >= (1-flip):
-                        images[i] = images[i][:,::-1,:]
-                        if not labels_subdir is None:
-                            labels[i] = labels[i][:,::-1,:]
-
-            if not labels_subdir is None:
-                yield np.array(images), np.array(labels)
-            else:
-                yield np.array(images)
+from helpers.ground_truth_conversion_utils import convert_IDs_to_IDs, convert_IDs_to_one_hot
 
 class BatchGenerator():
 
@@ -113,7 +14,10 @@ class BatchGenerator():
                  image_file_extension='png',
                  ground_truth_dirs=[],
                  image_name_split_separator=None,
-                 ground_truth_suffix=None):
+                 ground_truth_suffix=None,
+                 num_classes=None,
+                 root_dir=None,
+                 export_dir=None):
         '''
         Arguments:
             image_dirs (list): A list of directory paths, each of which contain
@@ -144,14 +48,35 @@ class BatchGenerator():
                 used to get the matching ground truth image file name. More precisely,
                 all characters left of the separator string will constitute the
                 beginning of the file name of the corresponding ground truth image.
-            ground_truth_suffix (string): The suffix added to the left part of
+            ground_truth_suffix (string, optional): The suffix added to the left part of
                 an image name string (see `image_name_split_separator`) in order
                 to compose the name of the corresponding ground truth image file.
                 The suffix must exclude the file extension.
+            num_classes (int, optional): The number of segmentation classes in the
+                ground truth data. Only relevant if you want the generator to convert
+                numeric labels to one-hot format, otherwise you can leave this `None`.
+            root_dir (string, optional): The dataset root directory. This is only
+                relevant if you want to use the generator to save processed data
+                to disk in addition to yielding it, i.e. if you want to do offline processing.
+                In this case, the generator will reproduce the directory hierarchy
+                of the source data within the target directory in which to save
+                the processed data. It needs to know the root directory of the
+                dataset in order to do so
+            export_dir (string, optional): This is only relevant if you want use
+                the generator to save processed data to disk in addition to yielding it,
+                i.e. if you want to do offline processing. This is the directory
+                into which the processed data will be written. The generator will
+                reproduce the directory hierarchy of the source data within this
+                directory.
         '''
 
+        self.image_dirs = image_dirs
+        self.ground_truth_dirs = ground_truth_dirs
+        self.root_dir = root_dir # The dataset root directory.
+        self.export_dir = export_dir
         self.image_paths = [] # The list of images from which the generator will draw.
         self.ground_truth_paths = {} # The dictionary of ground truth images that correspond to the images.
+        self.num_classes = num_classes
         self.dataset_size = 0
         self.ground_truth = False # Whether or not ground truth images were given.
 
@@ -195,9 +120,10 @@ class BatchGenerator():
 
     def generate(self,
                  batch_size,
-                 void_classes={},
-                 void_class_ID=None,
-                 conver_IDs_to_one_hot=True,
+                 convert_colors_to_ids=False,
+                 convert_ids_to_ids=False,
+                 convert_to_one_hot=True,
+                 void_class_id=None,
                  random_crop=False,
                  crop=False,
                  resize=False,
@@ -205,7 +131,8 @@ class BatchGenerator():
                  flip=False,
                  translate=False,
                  scale=False,
-                 gray=False):
+                 gray=False,
+                 to_disk=False):
         '''
 
         With any of the image transformations below, the respective ground truth images, if given,
@@ -238,6 +165,11 @@ class BatchGenerator():
             gray (bool, optional): If `True`, converts the images to grayscale. Note that the resulting grayscale
                 images have shape `(height, width, 1)`.
         '''
+        if (convert_to_one_hot or (convert_colors_to_ids is not False) or (convert_ids_to_ids is not False)) and not self.ground_truth:
+            raise ValueError("Cannot convert ground truth data: No ground truth data given.")
+
+        if convert_to_one_hot and self.num_classes is None:
+            raise ValueError("One-hot conversion requires that you pass an integer value for `num_classes` in the constructor, but `num_classes` is `None`.")
 
         random.shuffle(self.image_paths)
 
@@ -264,7 +196,18 @@ class BatchGenerator():
                 # If at least one ground truth directory was given, load the ground truth images.
                 if self.ground_truth:
 
-                    gt_image = scipy.misc.imread(self.ground_truth_paths[os.path.basename(image_path)])
+                    gt_image_path = self.ground_truth_paths[os.path.basename(image_path)]
+                    gt_image = scipy.misc.imread(gt_image_path)
+                    gt_dtype = gt_image.dtype
+
+                    if convert_colors_to_ids:
+                        gt_image = convert_between_IDs_and_colors(gt_image, convert_colors_to_ids, gt_dtype=np.uint8)
+
+                    if convert_ids_to_ids:
+                        if isinstance(convert_ids_to_ids, np.ndarray):
+                            gt_image = convert_IDs_to_IDs(gt_image, convert_ids_to_ids)
+                        if isinstance(convert_ids_to_ids, dict):
+                            gt_image = convert_IDs_to_IDs_partial(gt_image, convert_ids_to_ids)
 
                 # Maybe process the images and ground truth images.
 
@@ -295,7 +238,7 @@ class BatchGenerator():
                         # Do the same for the ground truth image.
                         if self.ground_truth:
                             patch_gt_image = np.copy(gt_image[crop_ymin:crop_ymin+random_crop[0]]) # ...crop the vertical dimension just as before,...
-                            canvas = np.full(shape=random_crop, fill_value=void_class_ID, dtype=np.uint8) # ...generate a blank background image to place the patch onto,...
+                            canvas = np.full(shape=random_crop, fill_value=void_class_id, dtype=gt_dtype) # ...generate a blank background image to place the patch onto,...
                             canvas[:, crop_xmin:crop_xmin+img_width] = patch_gt_image # ...and place the patch onto the canvas at the random `crop_xmin` position computed above.
                             gt_image = canvas
                     elif y_range < 0 and x_range >= 0: # If the crop is larger than the original image in the vertical dimension only,...
@@ -307,7 +250,7 @@ class BatchGenerator():
                         # Do the same for the ground truth image.
                         if self.ground_truth:
                             patch_gt_image = np.copy(gt_image[:,crop_xmin:crop_xmin+random_crop[1]]) # ...crop the horizontal dimension just as in the first case,...
-                            canvas = np.full(shape=random_crop, fill_value=void_class_ID, dtype=np.uint8) # ...generate a blank background image to place the patch onto,...
+                            canvas = np.full(shape=random_crop, fill_value=void_class_id, dtype=gt_dtype) # ...generate a blank background image to place the patch onto,...
                             canvas[crop_ymin:crop_ymin+img_height, :] = patch_gt_image # ...and place the patch onto the canvas at the random `crop_ymin` position computed above.
                             gt_image = canvas
                     else:  # If the crop is larger than the original image in both dimensions,...
@@ -318,7 +261,7 @@ class BatchGenerator():
                         # Do the same for the ground truth image.
                         if self.ground_truth:
                             patch_gt_image = np.copy(gt_image)
-                            canvas = np.full(shape=random_crop, fill_value=void_class_ID, dtype=np.uint8) # ...generate a blank background image to place the patch onto,...
+                            canvas = np.full(shape=random_crop, fill_value=void_class_id, dtype=gt_dtype) # ...generate a blank background image to place the patch onto,...
                             canvas[crop_ymin:crop_ymin+img_height, crop_xmin:crop_xmin+img_width] = patch_gt_image # ...and place the patch onto the canvas at the random `(crop_ymin, crop_xmin)` position computed above.
                             gt_image = canvas
                     # Update the height and width values.
@@ -356,7 +299,7 @@ class BatchGenerator():
                         translation_matrix = np.float32([[1,0,x_shift],[0,1,y_shift]])
                         # Warp the image and maybe the ground truth image.
                         image = cv2.warpAffine(src=image, M=translation_matrix, dsize=(img_width, img_height))
-                        if self.ground_truth: gt_image = cv2.warpAffine(src=gt_image, M=translation_matrix, dsize=(img_width, img_height), borderValue=void_class_ID)
+                        if self.ground_truth: gt_image = cv2.warpAffine(src=gt_image, M=translation_matrix, dsize=(img_width, img_height), borderValue=void_class_id)
 
                 if scale:
                     p = np.random.uniform(0,1)
@@ -380,7 +323,7 @@ class BatchGenerator():
                         if self.ground_truth:
                             patch_gt_image = cv2.resize(gt_image, dsize=(scaled_width, scaled_height), interpolation=cv2.INTER_NEAREST)
                             if scaling_factor <= 1:
-                                canvas = np.full(shape=(img_height, img_width), fill_value=void_class_ID, dtype=np.uint8)
+                                canvas = np.full(shape=(img_height, img_width), fill_value=void_class_id, dtype=gt_dtype)
                                 canvas[y_offset:y_offset+scaled_height, x_offset:x_offset+scaled_width] = patch_gt_image
                                 gt_image = canvas
                             if scaling_factor > 1:
@@ -388,6 +331,15 @@ class BatchGenerator():
 
                 if gray:
                     image = np.expand_dims(cv2.cvtColor(image, cv2.COLOR_RGB2GRAY), axis=2)
+
+                # Maybe convert ground truth IDs to one-hot.
+                if convert_to_one_hot:
+                    gt_image = convert_IDs_to_one_hot(gt_image, self.num_classes)
+
+                if to_disk: # If the processed data is to be written to disk instead of yieled.
+                    scipy.misc.imsave(os.path.join(self.export_dir, os.path.relpath(image_path, start=root_dir)), image)
+                    if self.ground_truth:
+                        scipy.misc.imsave(os.path.join(self.export_dir, os.path.relpath(gt_image_path, start=root_dir)), gt_image)
 
                 # Append the processed image (and maybe ground truth image) to this batch.
                 images.append(image)
