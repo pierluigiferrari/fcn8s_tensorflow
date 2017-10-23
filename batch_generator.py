@@ -167,6 +167,30 @@ class BatchGenerator():
         will be transformed accordingly.
 
         Arguments:
+            batch_size (int): The number of images (or image/ground truth pairs) to generate per
+                batch.
+            convert_colors_to_ids (dict, optional): `False` or a dictionary in which the keys are
+                3-tuples of `dtype uint8` representing 3-channel color values and the values
+                are integers representing the segmentation class ID associated with a given color
+                value. If the input ground truth images are 3-channel color images and a conversion
+                dictionary is passed, the ground truth images will be converted to single-channel
+                images with the according class IDs instead of color values. It is recommended to
+                perform color-to-ID conversion offline.
+            convert_ids_to_ids (array or dict, optional): `False` or either a 1D Numpy array or a Python
+                dictionary that represents a map according to which the generator will convert the
+                grund truth data's current class IDs to the desired class IDs. In the case of an array,
+                the array's indices represent the current IDs and the array's integer values represent the
+                desired IDs to which to convert. The array must contain a map for all possible unique
+                current class IDs. In the case of a dictionary, both keys and values must be integers.
+                The keys are the current IDs and the values are the desired IDs to which to convert.
+                The dictionary does not need to contain a mapping for all possible unique current class IDs.
+                For conversion of all IDs, an array will enable much faster conversion than a dictionary.
+            convert_to_one_hot (bool, optional): If `True`, the ground truth data will be converted to
+                one-hot format.
+            void_class_id (int, optional): The class ID of a 'void' or 'background' class. Only relevant
+                if any of the `random_crop`, `translate`, or `scale` transformations are being used
+                on ground truth data. Determines the pixel value of blank image space that might occur
+                through the aforementioned transformations.
             random_crop (tuple, optional): `False` or a tuple of two integers, `(height, width)`,
                 where `height` and `width` are the height and width of the patch that is to be cropped out at a random
                 position in the input image. Note that `height` and `width` can be arbitrary - they are allowed to be larger
@@ -192,6 +216,15 @@ class BatchGenerator():
                 of `[min, max]`. Both `min` and `max` must be >=0.
             gray (bool, optional): If `True`, converts the images to grayscale. Note that the resulting grayscale
                 images have shape `(height, width, 1)`.
+            to_disk (bool, optional): If `True`, the generated batches are being saved to `export_dir` (see constuctor)
+                in addition to being yielded. This can be used for offline dataset processing.
+            shuffle (bool, optional): If `True`, the dataset will be shuffled before each new pass.
+
+        Yields:
+            Either one 4D Numpy array of shape `(batch_size, img_height, img_with, num_channels)` with the
+            generated images, or, if paths to ground truth data were passed in the constructor, two Numpy
+            arrays, the first is the same as in the former case and the second has shape
+            `(batch_size, img_height, img_with)` and contains the generated ground truth images.
         '''
         if (convert_to_one_hot or (not convert_colors_to_ids is False) or (not convert_ids_to_ids is False)) and not self.ground_truth:
             raise ValueError("Cannot convert ground truth data: No ground truth data given.")
@@ -407,6 +440,16 @@ class BatchGenerator():
                     to_disk=True,
                     shuffle=False,
                     batch_size=1):
+        '''
+        Processes the entire dataset in batches of `batch_size` and saves the
+        results to `export_dir` (see constructor).
+
+        This is basically just a wrapper around the `generate()` method that
+        iterates over the entire dataset (or datasets, in case multiple were
+        passed in the constructor).
+
+        For documentation of the arguments, see `generate()`. Returns void.
+        '''
 
         preprocessor = self.generate(batch_size=batch_size,
                                 convert_colors_to_ids=convert_colors_to_ids,
