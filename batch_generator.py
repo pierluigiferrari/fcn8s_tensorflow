@@ -1,9 +1,13 @@
 import numpy as np
 import random
 import os
+import sys
+import pathlib
 import scipy.misc
 import cv2
 from glob import glob
+from math import ceil
+from tqdm import trange
 
 from helpers.ground_truth_conversion_utils import convert_IDs_to_IDs, convert_IDs_to_one_hot
 
@@ -12,9 +16,10 @@ class BatchGenerator():
     def __init__(self,
                  image_dirs,
                  image_file_extension='png',
-                 ground_truth_dirs=[],
+                 ground_truth_dirs=None,
                  image_name_split_separator=None,
                  ground_truth_suffix=None,
+                 check_existence=True,
                  num_classes=None,
                  root_dir=None,
                  export_dir=None):
@@ -52,6 +57,10 @@ class BatchGenerator():
                 an image name string (see `image_name_split_separator`) in order
                 to compose the name of the corresponding ground truth image file.
                 The suffix must exclude the file extension.
+            check_existence (bool, optional): Only relevant if ground truth images
+                are given. If `True`, the constructor checks for each ground truth image
+                path whether the respective file actually exists and throws a
+                `DataError` if it doesn't. Defaults to `True`.
             num_classes (int, optional): The number of segmentation classes in the
                 ground truth data. Only relevant if you want the generator to convert
                 numeric labels to one-hot format, otherwise you can leave this `None`.
@@ -80,6 +89,9 @@ class BatchGenerator():
         self.dataset_size = 0
         self.ground_truth = False # Whether or not ground truth images were given.
 
+        if len(self.image_dirs) != len(self.ground_truth_dirs):
+            raise ValueError("`image_dirs` and `ground_truth_dirs` must contain the same number of elements.")
+
         image_file_extension = image_file_extension.lower()
 
         for i, image_dir in enumerate(image_dirs): # Iterate over all given datasets.
@@ -92,31 +104,46 @@ class BatchGenerator():
 
                     self.image_paths += image_paths
 
-                    if len(ground_truth_dirs) > 0: # If there is ground truth data, add it to the ground truth list.
+                    if not ground_truth_dirs is None: # If there is ground truth data, add it to the ground truth list.
                         # Get the path of the ground truth directory that corresponds to this image directory.
                         ground_truth_dir = ground_truth_dirs[i] # Get the head.
                         ground_truth_subdir = os.path.basename(os.path.normpath(image_dir_path)) # Get the subdirectory we're currently in.
                         ground_truth_dir_path = os.path.join(ground_truth_dir, ground_truth_subdir)
 
+                        # Loop over all image paths to collect the corresponding ground truth image paths.
                         for image_path in image_paths:
                             # Construct the name of the ground truth image from the name of the image.
                             image_name = os.path.basename(image_path)
                             left_part = image_name.split(image_name_split_separator, 1)[0] # Get the left part of the split.
+                            # Compose the name of the ground truth image that corresponds to this image.
                             ground_truth_image_name = left_part + ground_truth_suffix + '.' + image_file_extension
+                            # Create the full path to this ground truth image.
+                            ground_truth_path = os.path.join(ground_truth_dir_path, ground_truth_image_name)
+
+                            if check_existence and not os.path.isfile(ground_truth_path):
+                                raise DataError("The dataset contains an image file '{}' for which the corresponding ground truth image file does not exist at '{}'.".format(image_path, ground_truth_path))
 
                             # Add the pair `image_name : ground_truth_path` to the dictionary
-                            self.ground_truth_paths[image_name] = os.path.join(ground_truth_dir_path, ground_truth_image_name)
+                            self.ground_truth_paths[image_name] = ground_truth_path
 
         self.dataset_size = len(self.image_paths)
 
         if self.dataset_size == 0:
-            raise SizeError("No images with the given file extension '{}' were found in the given image directories.".format(image_file_extension))
+            raise DataError("No images with the given file extension '{}' were found in the given image directories.".format(image_file_extension))
 
-        if (len(ground_truth_dirs) > 0) and (len(self.ground_truth_paths) != self.dataset_size):
-            raise SizeError('Ground truth directories were given, but the number of ground truth images found does not match the number of images. Number of images: {}. Number of ground truth images: {}'.format(self.dataset_size, len(self.ground_truth_paths)))
+        if (not ground_truth_dirs is None) and (len(self.ground_truth_paths) != self.dataset_size):
+            raise DataError('Ground truth directories were given, but the number of ground truth images found does not match the number of images. Number of images: {}. Number of ground truth images: {}'.format(self.dataset_size, len(self.ground_truth_paths)))
 
         if len(self.ground_truth_paths) > 0:
             self.ground_truth = True
+
+    def get_num_files(self):
+        '''
+        Returns the total number of image files (or image/ground truth image file
+        pairs if ground truth data was given) contained in all dataset directories
+        passed to the BatchGenerator constructor.
+        '''
+        return self.dataset_size
 
     def generate(self,
                  batch_size,
@@ -132,7 +159,8 @@ class BatchGenerator():
                  translate=False,
                  scale=False,
                  gray=False,
-                 to_disk=False):
+                 to_disk=False,
+                 shuffle=True):
         '''
 
         With any of the image transformations below, the respective ground truth images, if given,
@@ -165,13 +193,14 @@ class BatchGenerator():
             gray (bool, optional): If `True`, converts the images to grayscale. Note that the resulting grayscale
                 images have shape `(height, width, 1)`.
         '''
-        if (convert_to_one_hot or (convert_colors_to_ids is not False) or (convert_ids_to_ids is not False)) and not self.ground_truth:
+        if (convert_to_one_hot or (not convert_colors_to_ids is False) or (not convert_ids_to_ids is False)) and not self.ground_truth:
             raise ValueError("Cannot convert ground truth data: No ground truth data given.")
 
         if convert_to_one_hot and self.num_classes is None:
             raise ValueError("One-hot conversion requires that you pass an integer value for `num_classes` in the constructor, but `num_classes` is `None`.")
 
-        random.shuffle(self.image_paths)
+        if shuffle:
+            random.shuffle(self.image_paths)
 
         current = 0
 
@@ -183,7 +212,7 @@ class BatchGenerator():
 
             # Shuffle data after each complete pass
             if current >= len(self.image_paths):
-                random.shuffle(self.image_paths)
+                if shuffle: random.shuffle(self.image_paths)
                 current = 0
 
             # Load the images and ground truth images for this batch
@@ -200,10 +229,10 @@ class BatchGenerator():
                     gt_image = scipy.misc.imread(gt_image_path)
                     gt_dtype = gt_image.dtype
 
-                    if convert_colors_to_ids:
-                        gt_image = convert_between_IDs_and_colors(gt_image, convert_colors_to_ids, gt_dtype=np.uint8)
+                    if not convert_colors_to_ids is False:
+                        gt_image = convert_between_IDs_and_colors(gt_image, convert_colors_to_ids, gt_dtype=gt_dtype)
 
-                    if convert_ids_to_ids:
+                    if not convert_ids_to_ids is False:
                         if isinstance(convert_ids_to_ids, np.ndarray):
                             gt_image = convert_IDs_to_IDs(gt_image, convert_ids_to_ids)
                         if isinstance(convert_ids_to_ids, dict):
@@ -337,9 +366,19 @@ class BatchGenerator():
                     gt_image = convert_IDs_to_one_hot(gt_image, self.num_classes)
 
                 if to_disk: # If the processed data is to be written to disk instead of yieled.
-                    scipy.misc.imsave(os.path.join(self.export_dir, os.path.relpath(image_path, start=root_dir)), image)
+                    # Create the directory (including parents) if it doesn't already exist.
+                    image_save_file_path = os.path.join(self.export_dir, os.path.relpath(image_path, start=self.root_dir))
+                    image_save_directory_path = os.path.dirname(image_save_file_path)
+                    pathlib.Path(image_save_directory_path).mkdir(parents=True, exist_ok=True)
+                    # Save the image.
+                    scipy.misc.imsave(image_save_file_path, image)
                     if self.ground_truth:
-                        scipy.misc.imsave(os.path.join(self.export_dir, os.path.relpath(gt_image_path, start=root_dir)), gt_image)
+                        # Create the directory (including parents) if it doesn't already exist.
+                        gt_image_save_file_path = os.path.join(self.export_dir, os.path.relpath(gt_image_path, start=self.root_dir))
+                        gt_image_save_directory_path = os.path.dirname(gt_image_save_file_path)
+                        pathlib.Path(gt_image_save_directory_path).mkdir(parents=True, exist_ok=True)
+                        # Save the ground truth image.
+                        scipy.misc.imsave(gt_image_save_file_path, gt_image)
 
                 # Append the processed image (and maybe ground truth image) to this batch.
                 images.append(image)
@@ -351,6 +390,48 @@ class BatchGenerator():
                 yield np.array(images), np.array(gt_images)
             else:
                 yield np.array(images)
+
+    def process_all(self,
+                    convert_colors_to_ids=False,
+                    convert_ids_to_ids=False,
+                    convert_to_one_hot=False,
+                    void_class_id=None,
+                    random_crop=False,
+                    crop=False,
+                    resize=False,
+                    brightness=False,
+                    flip=False,
+                    translate=False,
+                    scale=False,
+                    gray=False,
+                    to_disk=True,
+                    shuffle=False,
+                    batch_size=1):
+
+        preprocessor = self.generate(batch_size=batch_size,
+                                convert_colors_to_ids=convert_colors_to_ids,
+                                convert_ids_to_ids=convert_ids_to_ids,
+                                convert_to_one_hot=convert_to_one_hot,
+                                void_class_id=void_class_id,
+                                random_crop=random_crop,
+                                crop=crop,
+                                resize=resize,
+                                brightness=brightness,
+                                flip=flip,
+                                translate=translate,
+                                scale=scale,
+                                gray=gray,
+                                to_disk=to_disk,
+                                shuffle=shuffle)
+
+        num_batches = ceil(self.dataset_size/batch_size)
+
+        tr = trange(num_batches, file=sys.stdout)
+        tr.set_description('Processing images')
+
+        for batch in tr:
+            images, gt_images = next(preprocessor)
+
 
 def _brightness(image, min=0.5, max=2.0):
     '''
@@ -371,7 +452,7 @@ def _brightness(image, min=0.5, max=2.0):
 
     return cv2.cvtColor(hsv,cv2.COLOR_HSV2RGB)
 
-class SizeError(Exception):
+class DataError(Exception):
     def __init__(self, value):
         self.value = value
     def __str__(self):
