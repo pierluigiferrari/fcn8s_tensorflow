@@ -11,8 +11,8 @@ from collections import deque
 import numpy as np
 import time
 
-from tf_variable_summaries import add_variable_summaries
-from visualization_utils import print_segmentation_onto_image
+from helpers.tf_variable_summaries import add_variable_summaries
+from helpers.visualization_utils import print_segmentation_onto_image
 
 class FCN8s:
 
