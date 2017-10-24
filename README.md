@@ -6,7 +6,7 @@
 2. [Examples](#examples)
 3. [Dependencies](#dependencies)
 4. [How to use it](#how-to-use-it)
-5. [ToDo](#todo)
+5. [Download pre-trained VGG-16](#download-pre-trained-vgg-16)
 6. [Terminology](#terminology)
 
 ### Overview
@@ -18,13 +18,6 @@ This repository only contains the 'all-at-once' version of the FCN-8s model, whi
 ### Examples
 
 Below are some prediction examples of the model trained on the [KITTI Vision Road/Lane Detection Evaluation 2013 dataset](http://www.cvlibs.net/datasets/kitti/eval_road.php) for 1200 steps, at which point the model reaches a mean IoU of 64% and an accuracy of 79% on the training dataset. The purpose of these examples is just to illustrate that the code works and the model learns.
-
-| |
-|---|
-| ![img02](./test_results/KITTI_Vision_Road/um_000003.png) |
-| ![img01](./test_results/KITTI_Vision_Road/uu_000058.png) |
-| ![img01](./test_results/KITTI_Vision_Road/uu_000084.png) |
-| ![img01](./test_results/KITTI_Vision_Road/uu_000095.png) |
 
 ![img02](./test_results/KITTI_Vision_Road/um_000003.png)
 
@@ -42,3 +35,11 @@ Below are some prediction examples of the model trained on the [KITTI Vision Roa
 * Scipy
 * OpenCV (for data augmentation)
 * tqdm
+
+### How to use it
+
+[fcn8s_tutorial.ipynb](https://github.com/pierluigiferrari/fcn8s_tensorflow/blob/master/fcn8s_tutorial.ipynb) explains how to train and evaluate the model and how to make and visualize predictions.
+
+### Download pre-trained VGG-16
+
+You can download the convolutionalized VGG-16 model [here]()
