@@ -280,7 +280,7 @@ class FCN8s:
             acc_value = tf.identity(acc_value, name='acc_value')
             acc_update_op = tf.identity(acc_update_op, name='acc_update_op')
 
-            # TensorFlow's streaming metrics don't have reset operations,
+            # As of version 1.3, TensorFlow's streaming metrics don't have reset operations,
             # so we need to create our own as a work-around. Say we want to evaluate
             # a metric after every training epoch. If we didn't have
             # a way to reset the metric's update op after every evaluation,
@@ -471,7 +471,9 @@ class FCN8s:
                         save = True
                     else:
                         i = self.metric_names.index(monitor)
-                        if self.metric_values[i] < self.best_metric_values[i]:
+                        if (monitor == 'loss') and (self.metric_values[i] < self.best_metric_values[i]):
+                            save = True
+                        elif (monitor in ['accuracry', 'mean_iou']) and (self.metric_values[i] > self.best_metric_values[i]):
                             save = True
                     if save:
                         print('New best {} value, saving model.'.format(monitor))
@@ -497,8 +499,10 @@ class FCN8s:
 
             if epoch % eval_frequency == 0:
 
-                for i in range(len(self.metric_names)):
-                    if self.metric_values[i] < self.best_metric_values[i]:
+                for i, metric_name in enumerate(self.metric_names):
+                    if (metric_name == 'loss') and (self.metric_values[i] < self.best_metric_values[i]):
+                        self.best_metric_values[i] = self.metric_values[i]
+                    elif (metric_name in ['accuracry', 'mean_iou']) and (self.metric_values[i] > self.best_metric_values[i]):
                         self.best_metric_values[i] = self.metric_values[i]
 
     def _evaluate(self, data_generator, metrics, num_batches, description='Running evaluation'):
