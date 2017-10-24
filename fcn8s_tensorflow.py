@@ -334,6 +334,31 @@ class FCN8s:
 
         return summaries_training, summaries_evaluation
 
+    def _initialize_metrics(self, metrics):
+
+        # Reset lists of previous tracked metrics.
+        self.metric_names = []
+        self.best_metric_values = []
+        self.metric_update_ops = []
+        self.metric_value_tensors = []
+
+        # Set the metrics that will be evaluated.
+        if 'loss' in metrics:
+            self.metric_names.append('loss')
+            self.best_metric_values.append(99999999.9)
+            self.metric_update_ops.append(self.mean_loss_update_op)
+            self.metric_value_tensors.append(self.mean_loss_value)
+        if 'mean_iou' in metrics:
+            self.metric_names.append('mean_iou')
+            self.best_metric_values.append(0.0)
+            self.metric_update_ops.append(self.mean_iou_update_op)
+            self.metric_value_tensors.append(self.mean_iou_value)
+        if 'accuracy' in metrics:
+            self.metric_names.append('accuracy')
+            self.best_metric_values.append(0.0)
+            self.metric_update_ops.append(self.acc_update_op)
+            self.metric_value_tensors.append(self.acc_value)
+
     def train(self,
               train_generator,
               epochs,
@@ -380,6 +405,8 @@ class FCN8s:
 
         self.g_step = self.sess.run(self.global_step)
         learning_rate = learning_rate_schedule(self.g_step)
+
+        self._initialize_metrics(metrics)
 
         # Set up the summary file writers.
         if record_summaries:
@@ -521,29 +548,6 @@ class FCN8s:
         # Reset all metrics' accumulator variables.
         self.sess.run(self.metrics_reset_op)
 
-        # Reset lists of previous tracked metrics.
-        self.metric_names = []
-        self.best_metric_values = []
-        self.metric_update_ops = []
-        self.metric_value_tensors = []
-
-        # Set the metrics that will be evaluated.
-        if 'loss' in metrics:
-            self.metric_names.append('loss')
-            self.best_metric_values.append(99999999.9)
-            self.metric_update_ops.append(self.mean_loss_update_op)
-            self.metric_value_tensors.append(self.mean_loss_value)
-        if 'mean_iou' in metrics:
-            self.metric_names.append('mean_iou')
-            self.best_metric_values.append(0.0)
-            self.metric_update_ops.append(self.mean_iou_update_op)
-            self.metric_value_tensors.append(self.mean_iou_value)
-        if 'accuracy' in metrics:
-            self.metric_names.append('accuracy')
-            self.best_metric_values.append(0.0)
-            self.metric_update_ops.append(self.acc_update_op)
-            self.metric_value_tensors.append(self.acc_value)
-
         # Set up the progress bar.
         tr = trange(num_batches, file=sys.stdout)
         tr.set_description(description)
@@ -571,6 +575,8 @@ class FCN8s:
         for metric in metrics:
             if not metric in ['loss', 'mean_iou', 'accuracy']:
                 raise ValueError("{} is not a valid metric. Valid metrics are ['loss', mean_iou', 'accuracy']".format(metric))
+
+        self._initialize_metrics(metrics)
 
         self._evaluate(data_generator, metrics, num_batches, description='Running evaluation')
 
