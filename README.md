@@ -7,7 +7,6 @@
 3. [Dependencies](#dependencies)
 4. [How to use it](#how-to-use-it)
 5. [Download pre-trained VGG-16](#download-pre-trained-vgg-16)
-6. [Terminology](#terminology)
 
 ### Overview
 
