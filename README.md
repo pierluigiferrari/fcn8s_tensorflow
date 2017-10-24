@@ -33,3 +33,12 @@ Below are some prediction examples of the model trained on the [KITTI Vision Roa
 ![img01](./test_results/KITTI_Vision_Road/uu_000084.png)
 
 ![img01](./test_results/KITTI_Vision_Road/uu_000095.png)
+
+### Dependencies
+
+* Python 3.x
+* TensorFlow 1.x
+* Numpy
+* Scipy
+* OpenCV (for data augmentation)
+* tqdm
