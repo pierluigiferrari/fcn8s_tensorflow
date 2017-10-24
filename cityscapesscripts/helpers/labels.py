@@ -175,6 +175,8 @@ trainIds_to_colors_dict = {label.trainId: label.color for label in labels}
 colors_to_trainIds_dict = {label.color: label.trainId for label in labels}
 ids_to_trainIds_dict = {label.id: label.trainId for label in labels}
 trainIds_to_ids_dict = {label.trainId: label.id for label in labels}
+ids_to_categoryIds_dict = {label.id: label.categoryId for label in labels}
+categoryIds_to_ids_dict = {label.categoryId: label.id for label in labels}
 
 ids_to_colors_array = np.zeros(shape=(35, 3), dtype=np.uint8)
 for class_id, color in ids_to_colors_dict.items():
@@ -189,16 +191,28 @@ for old_id, new_id in trainIds_to_ids_dict.items():
     trainIds_to_ids_array[old_id] = new_id
 trainIds_to_ids_array[0] = 0
 
+ids_to_categoryIds_array = np.zeros(shape=35, dtype=np.uint8)
+for old_id, new_id in ids_to_categoryIds_dict.items():
+    ids_to_categoryIds_array[old_id] = new_id
+
+categoryIds_to_ids_array = np.zeros(shape=8, dtype=np.uint8)
+for old_id, new_id in categoryIds_to_ids_dict.items():
+    categoryIds_to_ids_array[old_id] = new_id
+
 IDS_TO_COLORS_DICT = ids_to_colors_dict
 COLORS_TO_IDS_DICT = colors_to_ids_dict
 TRAINIDS_TO_COLORS_DICT = trainIds_to_colors_dict
 COLORS_TO_TRAINIDS_DICT = colors_to_trainIds_dict
 IDS_TO_TRAINIDS_DICT = ids_to_trainIds_dict
 TRAINIDS_TO_IDS_DICT = trainIds_to_ids_dict
+IDS_TO_CATEGORYIDS_DICT = ids_to_categoryIds_dict
+CATEGORYIDS_TO_IDS_DICT = categoryIds_to_ids_dict
 
 IDS_TO_COLORS_ARRAY = ids_to_colors_array
 IDS_TO_TRAINIDS_ARRAY = ids_to_trainIds_array
 TRAINIDS_TO_IDS_ARRAY = trainIds_to_ids_array
+IDS_TO_CATEGORYIDS_ARRAY = ids_to_categoryIds_array
+CATEGORYIDS_TO_IDS_ARRAY = categoryIds_to_ids_array
 
 IDS_TO_RGBA_DICT = {key: (*value, 127) for key, value in IDS_TO_COLORS_DICT.items()}
 TRAINIDS_TO_RGBA_DICT = {key: (*value, 127) for key, value in TRAINIDS_TO_COLORS_DICT.items()}
