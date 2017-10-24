@@ -19,9 +19,17 @@ class FCN8s:
     def __init__(self, model_load_dir=None, tags=None, vgg16_dir=None, num_classes=None):
         '''
         Arguments:
-            vgg16_dir (string): The directory that contains the pretrained VGG-16 model. The directory needs to
-                                contain a `variables/` directory that contains the variables checkpoint, and a
-                                "saved_model.pb" protocol buffer.
+            model_load_dir (string, optional): The directory path to a `SavedModel`, i.e. to the directory
+                that contains a saved FCN-8s model protocol buffer. If a path is provided, the targeted model will
+                be loaded. If no path is given, the model will be built from scratch on top of a pre-trained,
+                convolutionalized VGG-16 base network. `model_load_dir` and `vgg16_dir` may not both be `None`.
+            tags (list, optional): Only relevant if a path to a saved FCN-8s model is given in `model_load_dir`.
+                A list of strings containing the tags required to load the appropriate metagraph.
+            vgg16_dir (string, optional): Only relevant if no path to a saved FCN-8s model is given in `model_load_dir`.
+                The directory that contains a pretrained, convolutionalized VGG-16 model in the form of a protocol buffer.
+                `model_load_dir` and `vgg16_dir` may not both be `None`.
+            num_classes (int, optional): Only relevant if no path to a saved FCN-8s model is given in `model_load_dir`.
+                The number of segmentation classes.
         '''
         # Check TensorFlow version
         assert LooseVersion(tf.__version__) >= LooseVersion('1.0'), 'This program requires TensorFlow version 1.0 or newer. You are using {}'.format(tf.__version__)
@@ -73,6 +81,7 @@ class FCN8s:
             self.learning_rate = graph.get_tensor_by_name('optimizer/learning_rate:0')
             self.global_step = graph.get_tensor_by_name('optimizer/global_step:0')
             self.softmax_output = graph.get_tensor_by_name('predictor/softmax_output:0')
+            self.predictions_argmax = graph.get_tensor_by_name('predictor/predictions_argmax:0')
             self.mean_loss_value = graph.get_tensor_by_name('metrics/mean_loss_value:0')
             self.mean_loss_update_op = graph.get_tensor_by_name('metrics/mean_loss_update_op:0')
             self.mean_iou_value = graph.get_tensor_by_name('metrics/mean_iou_value:0')
@@ -96,10 +105,11 @@ class FCN8s:
             # Build the part of the graph that is relevant for the training.
             self.labels = tf.placeholder(dtype=tf.int32, shape=[None, None, None, self.num_classes], name='labels_input')
             self.loss, self.train_op, self.learning_rate, self.global_step = self._build_optimizer()
-            # Add the evaluator.
-            self.softmax_output = self._build_predictor()
+            # Add the prediction outputs.
+            self.softmax_output, self.predictions_argmax = self._build_predictor()
+            # Add metrics for evaluation.
             self.mean_loss_value, self.mean_loss_update_op, self.mean_iou_value, self.mean_iou_update_op, self.acc_value, self.acc_update_op, self.metrics_reset_op = self._build_metrics()
-            # Add summary ops.
+            # Add summary ops for TensorBoard.
             self.summaries_training, self.summaries_evaluation = self._build_summary_ops()
             # Initialize the global and local (for the metrics) variables.
             self.sess.run(tf.global_variables_initializer())
@@ -107,15 +117,7 @@ class FCN8s:
 
     def _load_vgg16(self):
         '''
-        Loads the pretrained VGG-16 model into `sess`.
-
-            vgg_path (string): The directory that contains the pretrained VGG-16 model. The directory needs to
-                               contain a `variables/` directory that contains the variables checkpoint, and a
-                               "saved_model.pb" protocol buffer.
-
-        Return:
-            A tuple of the five tensors that are relevant to build our FCN-8s on top of the VGG-16,
-            namely `(image_input, keep_prob, layer3_out, layer4_out, layer7_out)`.
+        Loads the pretrained, convolutionalized VGG-16 model into the session.
         '''
 
         # 1: Load the model
@@ -143,11 +145,6 @@ class FCN8s:
     def _build_decoder(self):
         '''
         Builds the FCN-8s decoder given the pool3, pool4, and fc7 outputs of the VGG-16 encoder.
-
-        Returns:
-            The raw (i.e. not yet scaled by softmax) output of the final FCN-8s layer.
-            This is a 4D tensor of shape `[batch, img_height, img_width, num_classes]`, i.e.
-            the spatial dimensions of the output are the same as those of the input images.
         '''
 
         stddev_1x1 = 0.001 # Standard deviation for the 1x1 kernel initializers
@@ -230,6 +227,9 @@ class FCN8s:
         return fc7_pool4_pool3_conv2d_trans
 
     def _build_optimizer(self):
+        '''
+        Builds the training-relevant part of the graph.
+        '''
 
         with tf.name_scope('optimizer'):
             # Create a training step counter.
@@ -245,16 +245,25 @@ class FCN8s:
         return loss, train_op, learning_rate, global_step
 
     def _build_predictor(self):
+        '''
+        Builds the prediction-relevant part of the graph.
+        '''
 
         with tf.name_scope('predictor'):
 
             softmax_output = tf.nn.softmax(self.fcn8s_output, name='softmax_output')
+            predictions_argmax = tf.argmax(softmax_output, axis=-1, name='predictions_argmax', output_type=tf.int64)
 
-        return softmax_output
+        return softmax_output, predictions_argmax
 
     def _build_metrics(self):
+        '''
+        Builds the evaluation-relevant part of the graph, i.e. the metrics operations.
+        '''
 
         with tf.variable_scope('metrics') as scope:
+
+            labels_argmax = tf.argmax(self.labels, axis=-1, name='labels_argmax', output_type=tf.int64)
 
             # 1: Mean loss
 
@@ -265,8 +274,8 @@ class FCN8s:
 
             # 1: Mean IoU
 
-            mean_iou_value, mean_iou_update_op = tf.metrics.mean_iou(labels=self.labels,
-                                                                     predictions=self.softmax_output,
+            mean_iou_value, mean_iou_update_op = tf.metrics.mean_iou(labels=labels_argmax,
+                                                                     predictions=self.predictions_argmax,
                                                                      num_classes=self.num_classes)
 
             mean_iou_value = tf.identity(mean_iou_value, name='mean_iou_value')
@@ -274,8 +283,8 @@ class FCN8s:
 
             # 2: Accuracy
 
-            acc_value, acc_update_op = tf.metrics.accuracy(labels=self.labels,
-                                                           predictions=self.softmax_output)
+            acc_value, acc_update_op = tf.metrics.accuracy(labels=labels_argmax,
+                                                           predictions=self.predictions_argmax)
 
             acc_value = tf.identity(acc_value, name='acc_value')
             acc_update_op = tf.identity(acc_update_op, name='acc_update_op')
@@ -299,6 +308,9 @@ class FCN8s:
                 metrics_reset_op)
 
     def _build_summary_ops(self):
+        '''
+        Builds the part of the graph that logs summaries for TensorBoard.
+        '''
 
         graph = tf.get_default_graph()
 
@@ -335,6 +347,9 @@ class FCN8s:
         return summaries_training, summaries_evaluation
 
     def _initialize_metrics(self, metrics):
+        '''
+        Initializes/resets the metrics before every call to `train` and `evaluate`.
+        '''
 
         # Reset lists of previous tracked metrics.
         self.metric_names = []
@@ -381,6 +396,71 @@ class FCN8s:
               summaries_dir=None,
               summaries_name=None,
               training_loss_display_averaging=3):
+        '''
+        Trains the model.
+
+        Arguments:
+            train_generator (generator): A generator that yields batches of images
+                and associated ground truth images in two separate Numpy arrays.
+                The images must be a 4D array with format `(batch_size, height, width, channels)`
+                and the ground truth images must be a 4D array with format
+                `(batch_size, height, width, num_classes)`, i.e. the ground truth
+                data must be provided in one-hot format.
+            epochs (int): The number of epochs to run the training for, where each epoch
+                consists of `steps_per_epoch` training steps.
+            steps_per_epoch (int): The number of training steps (i.e. batches processed)
+                per epoch.
+            learning_rate_schedule (function): Any function that takes as its sole input
+                an integer (the global step counter) and returns a float (the learning rate).
+            keep_prob (float, optional): The keep probability for the two dropout layers
+                in the VGG-16 encoder network. Defaults to 0.5.
+            eval_dataset (string, optional): Which generator to use for the evaluation
+                of the model during training. Can be either of 'train' (the train_generator
+                will be used) or 'val' (the val_generator will be used). Defaults to 'train',
+                but should be set to 'val' if a validation dataset is available.
+            eval_frequency (int, optional): The model will be evaluated on `metrics` after every
+                `eval_frequency` epochs. Defaults to 5.
+            val_generator (generator, optional): An optional second generator for a second
+                dataset (validation dataset), works the same way as `train_generator`.
+            val_steps (int, optional): The number of steps to run `val_generator` for
+                during evaluation.
+            metrics (set, optional): The metrics to be evaluated during training. A Python
+                set containing any subset of `{'loss', 'mean_iou', 'accuracy'}`, which are the
+                currently available metrics. Defaults to the empty set, meaning that the
+                model will not be evaluated during training.
+            save_during_training (bool, optional): Whether or not to save the model periodically
+                during training, the parameters of which can be set in the subsequent arguments.
+                Defaults to `False`.
+            save_dir (string, optional): The full path of the directory to save the model to
+                during training.
+            save_best_only (bool, optional): If `True`, the model will only be saved upon
+                evaluation if the metric defined by `monitor` has improved since it was last
+                measured before. Can only be `True` if `metrics` is not empty.
+            save_tags (list, optional): An optional list of tags to save the model metagraph
+                with in the SavedModel protocol buffer. Defaults to a list only containing
+                the tag 'default'. At least one tag must be given.
+            save_frequency (int, optional): The model will be saved at most after every
+                `save_frequency` epochs, but possibly less often if `save_best_only` is `True`
+                and if there was no improvement in the monitored metric. Defaults to 5.
+            monitor (string, optional): The name of the metric that is to be monitored in
+                order to decide whether the model should be saved. Can be one of
+                `{'loss', 'mean_iou', 'accuracy'}`, which are the currently available metrics.
+                Defaults to 'loss'.
+            record_summaries (bool, optional): Whether or not to record TensorBoard summaries.
+                Defaults to `True`.
+            summaries_frequency (int, optional): How often summaries should be logged for
+                tensors which are updated at every training step. The summaries for such tensors
+                will be recorded every `summaries_frequency` training steps. Defaults to 10.
+            summaries_dir (string, optional): The full path of the directory to which to
+                write the summaries protocol buffers.
+            summaries_name (string, optional): The name of the summaries buffers.
+            training_loss_display_averaging (int, optional): During training, the current
+                training loss is always displayed. Since training on mini-batches has the effect
+                that the loss might jump from training step to training step, this parameter
+                allows to average the displayed loss over tha lasst `training_loss_display_averaging`
+                training steps so that it shows a more representative picture of the actual
+                current loss. Defaults to 3.
+        '''
 
         # Check for a GPU
         if not tf.test.gpu_device_name():
@@ -566,11 +646,29 @@ class FCN8s:
         self.metric_values = self.sess.run(self.metric_value_tensors)
 
         evaluation_results_string = ''
-        for i, metric in enumerate(self.metric_names):
-            evaluation_results_string += metric + ': {:.4f}  '.format(self.metric_values[i])
+        for i, metric_name in enumerate(self.metric_names):
+            evaluation_results_string += metric_name + ': {:.4f}  '.format(self.metric_values[i])
         print(evaluation_results_string)
 
-    def evaluate(self, data_generator, metrics, num_batches):
+    def evaluate(self, data_generator, num_batches, metrics={'loss', 'mean_iou', 'accuracy'}):
+        '''
+        Evaluates the model on the given metrics on the data generated by `data_generator`.
+
+        Arguments:
+            data_generator (generator): A generator that yields batches of images
+                and associated ground truth images in two separate Numpy arrays.
+                The images must be a 4D array with format `(batch_size, height, width, channels)`
+                and the ground truth images must be a 4D array with format
+                `(batch_size, height, width, num_classes)`, i.e. the ground truth
+                data must be provided in one-hot format. The generator's batch size
+                has no effect on the outcome of the evaluation.
+            num_batches (int): The number of batches to evaluate the model on.
+                Typically this will be the number of batches such that the model
+                is being evaluated on the whole evaluation dataset.
+            metrics (set, optional): The metrics to be evaluated. A Python set containing
+                any subset of `{'loss', 'mean_iou', 'accuracy'}`, which are the
+                currently available metrics. Defaults to the full set.
+        '''
 
         for metric in metrics:
             if not metric in ['loss', 'mean_iou', 'accuracy']:
@@ -580,7 +678,7 @@ class FCN8s:
 
         self._evaluate(data_generator, metrics, num_batches, description='Running evaluation')
 
-    def predict(self, images):
+    def predict(self, images, argmax=True):
         '''
         Makes predictions for the input images.
 
@@ -588,16 +686,26 @@ class FCN8s:
             images (array-like): The input image or images. Must be an array-like
                 object of rank 4. If predicting only one image, encapsulate it in
                 a Python list.
+            argmax (bool, optional): If `True`, the model predicts class IDs,
+                i.e. the last dimension has length 1 and an integer between
+                zero and `num_classes - 1` for each pixel. Otherwise, the model
+                outputs the softmax distribution, i.e. the last dimension has
+                length `num_classes` and contains the probability for each class
+                for all pixels. Defaults to `True`.
 
         Returns:
             The prediction, an array of rank 4 of which the first three dimensions
-            are identical to the input and the fourth dimension is the number of
-            segmentation classes including the background class.
+            are identical to the input and the fourth dimension is as described
+            in `argmax`.
         '''
-
-        return self.sess.run(self.softmax_output,
-                             feed_dict={self.image_input: images,
-                                        self.keep_prob: 1.0})
+        if argmax:
+            return self.sess.run(self.predictions_argmax,
+                                 feed_dict={self.image_input: images,
+                                            self.keep_prob: 1.0})
+        else:
+            return self.sess.run(self.softmax_output,
+                                 feed_dict={self.image_input: images,
+                                            self.keep_prob: 1.0})
 
     def predict_and_save(self, results_dir, images_dir, image_size, color_map):
         '''
@@ -653,6 +761,26 @@ class FCN8s:
              include_global_step=True,
              include_last_training_loss=True,
              include_metrics=True):
+        '''
+        Saves the model to disk.
+
+        Arguments:
+            model_save_dir (string): The full path of the directory to which to
+                save the model.
+            tags (list, optional): An optional list of tags to save the model metagraph
+                with in the SavedModel protocol buffer. Defaults to a list only containing
+                the tag 'default'. At least one tag must be given.
+            name (string, optional): An optional name that will be part of the name of the
+                saved model's parent directory. Since you have the possibility to include
+                the global step number and the values of metrics in the model name, giving
+                an explicit name here is often not necessary.
+            include_global_step (bool, optional): Whether or not to include the global
+                step number in the model name. Defaults to `True`.
+            include_last_training_loss (bool, optional): Whether of not to include the
+                last training loss value in the model name. Defaults to `True`.
+            include_metrics (bool, optional): If `True`, the last values of all recorded
+                metrics will be included in the model name. Defaults to `True`.
+        '''
 
         if not self.variables_updated:
             print("Abort: Nothing to save, no training has been performed since the model was last saved.")
@@ -682,5 +810,9 @@ class FCN8s:
         self.variables_updated = False
 
     def close(self):
+        '''
+        Closes the session. This method is important to call when you are done working
+        with the model in order to release the resources it occupies.
+        '''
         self.sess.close()
         print("The session has been closed.")
