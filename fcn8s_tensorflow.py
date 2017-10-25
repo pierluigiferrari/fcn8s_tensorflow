@@ -76,7 +76,7 @@ class FCN8s:
             self.keep_prob = graph.get_tensor_by_name('keep_prob:0')
             self.fcn8s_output = graph.get_tensor_by_name('decoder/fcn8s_output:0')
             self.labels = graph.get_tensor_by_name('labels_input:0')
-            self.loss = graph.get_tensor_by_name('optimizer/loss:0')
+            self.total_loss = graph.get_tensor_by_name('optimizer/total_loss:0')
             self.train_op = graph.get_tensor_by_name('optimizer/train_op:0')
             self.learning_rate = graph.get_tensor_by_name('optimizer/learning_rate:0')
             self.global_step = graph.get_tensor_by_name('optimizer/global_step:0')
@@ -104,7 +104,7 @@ class FCN8s:
             self.fcn8s_output = self._build_decoder()
             # Build the part of the graph that is relevant for the training.
             self.labels = tf.placeholder(dtype=tf.int32, shape=[None, None, None, self.num_classes], name='labels_input')
-            self.loss, self.train_op, self.learning_rate, self.global_step = self._build_optimizer()
+            self.total_loss, self.train_op, self.learning_rate, self.global_step = self._build_optimizer()
             # Add the prediction outputs.
             self.softmax_output, self.predictions_argmax = self._build_predictor()
             # Add metrics for evaluation.
@@ -239,14 +239,14 @@ class FCN8s:
             # Compute the regularizatin loss.
             regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES) # This is a list of the individual loss values, so we still need to sum them up.
             regularization_loss = tf.add_n(regularization_losses, name='regularization_loss') # Scalar
-            # Compute the loss.
+            # Compute the total loss.
             approximation_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.labels, logits=self.fcn8s_output), name='approximation_loss') # Scalar
             total_loss = tf.add(approximation_loss, regularization_loss, name='total_loss')
             # Compute the gradients and apply them.
             optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, name='adam_optimizer')
             train_op = optimizer.minimize(total_loss, global_step=global_step, name='train_op')
 
-        return loss, train_op, learning_rate, global_step
+        return total_loss, train_op, learning_rate, global_step
 
     def _build_predictor(self):
         '''
@@ -271,7 +271,7 @@ class FCN8s:
 
             # 1: Mean loss
 
-            mean_loss_value, mean_loss_update_op = tf.metrics.mean(self.loss)
+            mean_loss_value, mean_loss_update_op = tf.metrics.mean(self.total_loss)
 
             mean_loss_value = tf.identity(mean_loss_value, name='mean_loss_value')
             mean_loss_update_op = tf.identity(mean_loss_update_op, name='mean_loss_update_op')
@@ -332,7 +332,7 @@ class FCN8s:
         add_variable_summaries(variable=graph.get_tensor_by_name('fc7_pool4_pool3_conv2d_trans/bias:0'), scope='fc7_pool4_pool3_conv2d_trans/bias')
 
         # Loss and learning rate.
-        tf.summary.scalar('loss', self.loss)
+        tf.summary.scalar('total_loss', self.total_loss)
         tf.summary.scalar('learning_rate', self.learning_rate)
 
         summaries_training = tf.summary.merge_all()
@@ -516,7 +516,7 @@ class FCN8s:
 
                 if record_summaries and (self.g_step % summaries_frequency == 0):
                     _, current_loss, self.g_step, training_summary = self.sess.run([self.train_op,
-                                                                                    self.loss,
+                                                                                    self.total_loss,
                                                                                     self.global_step,
                                                                                     self.summaries_training],
                                                                                    feed_dict={self.image_input: batch_images,
@@ -526,7 +526,7 @@ class FCN8s:
                     training_writer.add_summary(summary=training_summary, global_step=self.g_step)
                 else:
                     _, current_loss, self.g_step = self.sess.run([self.train_op,
-                                                                  self.loss,
+                                                                  self.total_loss,
                                                                   self.global_step],
                                                                  feed_dict={self.image_input: batch_images,
                                                                             self.labels: batch_labels,
