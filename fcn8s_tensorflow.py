@@ -75,6 +75,7 @@ class FCN8s:
             self.image_input = graph.get_tensor_by_name('image_input:0')
             self.keep_prob = graph.get_tensor_by_name('keep_prob:0')
             self.fcn8s_output = graph.get_tensor_by_name('decoder/fcn8s_output:0')
+            self.l2_regularization_rate = graph.get_tensor_by_name('decoder/l2_regularization_rate:0')
             self.labels = graph.get_tensor_by_name('labels_input:0')
             self.total_loss = graph.get_tensor_by_name('optimizer/total_loss:0')
             self.train_op = graph.get_tensor_by_name('optimizer/train_op:0')
@@ -101,7 +102,7 @@ class FCN8s:
             # Load the pretrained convolutionalized VGG-16 model as our encoder.
             self.image_input, self.keep_prob, self.pool3_out, self.pool4_out, self.fc7_out = self._load_vgg16()
             # Build the decoder on top of the VGG-16 encoder.
-            self.fcn8s_output = self._build_decoder()
+            self.fcn8s_output, self.l2_regularization_rate = self._build_decoder()
             # Build the part of the graph that is relevant for the training.
             self.labels = tf.placeholder(dtype=tf.int32, shape=[None, None, None, self.num_classes], name='labels_input')
             self.total_loss, self.train_op, self.learning_rate, self.global_step = self._build_optimizer()
@@ -149,7 +150,7 @@ class FCN8s:
 
         stddev_1x1 = 0.001 # Standard deviation for the 1x1 kernel initializers
         stddev_conv2d_trans = 0.01 # Standard deviation for the convolution transpose kernel initializers
-        l2reg = 0.001 # L2 regularization rate for the kernels
+        l2_regularization_rate = tf.placeholder(dtype=tf.float32, shape=[], name='l2_regularization_rate') # L2 regularization rate for the kernels
 
         with tf.name_scope('decoder'):
 
@@ -166,7 +167,7 @@ class FCN8s:
                                          strides=(1, 1),
                                          padding='same',
                                          kernel_initializer=tf.truncated_normal_initializer(stddev=stddev_1x1),
-                                         kernel_regularizer=tf.contrib.layers.l2_regularizer(l2reg),
+                                         kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_regularization_rate),
                                          name='pool3_1x1')
 
             pool4_out_scaled = tf.multiply(self.pool4_out, 0.01, name='pool4_out_scaled')
@@ -177,7 +178,7 @@ class FCN8s:
                                          strides=(1, 1),
                                          padding='same',
                                          kernel_initializer=tf.truncated_normal_initializer(stddev=stddev_1x1),
-                                         kernel_regularizer=tf.contrib.layers.l2_regularizer(l2reg),
+                                         kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_regularization_rate),
                                          name='pool4_1x1')
 
             fc7_1x1 = tf.layers.conv2d(inputs=self.fc7_out,
@@ -186,7 +187,7 @@ class FCN8s:
                                        strides=(1, 1),
                                        padding='same',
                                        kernel_initializer=tf.truncated_normal_initializer(stddev=stddev_1x1),
-                                       kernel_regularizer=tf.contrib.layers.l2_regularizer(l2reg),
+                                       kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_regularization_rate),
                                        name='fc7_1x1')
 
             # 2: Upscale and fuse until we're back at the original image size.
@@ -197,7 +198,7 @@ class FCN8s:
                                                           strides=(2, 2),
                                                           padding='same',
                                                           kernel_initializer=tf.truncated_normal_initializer(stddev=stddev_conv2d_trans),
-                                                          kernel_regularizer=tf.contrib.layers.l2_regularizer(l2reg),
+                                                          kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_regularization_rate),
                                                           name='fc7_conv2d_trans')
 
             add_fc7_pool4 = tf.add(fc7_conv2d_trans, pool4_1x1, name='add_fc7_pool4')
@@ -208,7 +209,7 @@ class FCN8s:
                                                                 strides=(2, 2),
                                                                 padding='same',
                                                                 kernel_initializer=tf.truncated_normal_initializer(stddev=stddev_conv2d_trans),
-                                                                kernel_regularizer=tf.contrib.layers.l2_regularizer(l2reg),
+                                                                kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_regularization_rate),
                                                                 name='fc7_pool4_conv2d_trans')
 
             add_fc7_pool4_pool3 = tf.add(fc7_pool4_conv2d_trans, pool3_1x1, name='add_fc7_pool4_pool3')
@@ -219,12 +220,12 @@ class FCN8s:
                                                                       strides=(8, 8),
                                                                       padding='same',
                                                                       kernel_initializer=tf.truncated_normal_initializer(stddev=stddev_conv2d_trans),
-                                                                      kernel_regularizer=tf.contrib.layers.l2_regularizer(l2reg),
+                                                                      kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_regularization_rate),
                                                                       name='fc7_pool4_pool3_conv2d_trans')
 
             fcn8s_output = tf.identity(fc7_pool4_pool3_conv2d_trans, name='fcn8s_output')
 
-        return fc7_pool4_pool3_conv2d_trans
+        return fc7_pool4_pool3_conv2d_trans, l2_regularization_rate
 
     def _build_optimizer(self):
         '''
@@ -384,6 +385,7 @@ class FCN8s:
               steps_per_epoch,
               learning_rate_schedule,
               keep_prob=0.5,
+              l2_regularization=0.0,
               eval_dataset='train',
               eval_frequency=5,
               val_generator=None,
@@ -418,6 +420,9 @@ class FCN8s:
                 an integer (the global step counter) and returns a float (the learning rate).
             keep_prob (float, optional): The keep probability for the two dropout layers
                 in the VGG-16 encoder network. Defaults to 0.5.
+            l2_regularization (float, optional): The scaling factor for the L2 regularization
+                of all decoder kernels. 0 means no regularization at all. This has no effect
+                on the kernels of the VGG-16 encoder network. Defaults to 0.
             eval_dataset (string, optional): Which generator to use for the evaluation
                 of the model during training. Can be either of 'train' (the train_generator
                 will be used) or 'val' (the val_generator will be used). Defaults to 'train',
@@ -522,7 +527,8 @@ class FCN8s:
                                                                                    feed_dict={self.image_input: batch_images,
                                                                                               self.labels: batch_labels,
                                                                                               self.learning_rate: learning_rate,
-                                                                                              self.keep_prob: keep_prob})
+                                                                                              self.keep_prob: keep_prob,
+                                                                                              self.l2_regularization_rate: l2_regularization})
                     training_writer.add_summary(summary=training_summary, global_step=self.g_step)
                 else:
                     _, current_loss, self.g_step = self.sess.run([self.train_op,
@@ -531,7 +537,8 @@ class FCN8s:
                                                                  feed_dict={self.image_input: batch_images,
                                                                             self.labels: batch_labels,
                                                                             self.learning_rate: learning_rate,
-                                                                            self.keep_prob: keep_prob})
+                                                                            self.keep_prob: keep_prob,
+                                                                            self.l2_regularization_rate: l2_regularization})
 
                 self.variables_updated = True
 
