@@ -236,11 +236,15 @@ class FCN8s:
             global_step = tf.Variable(0, trainable=False, name='global_step')
             # Create placeholder for the learning rate.
             learning_rate = tf.placeholder(dtype=tf.float32, shape=[], name='learning_rate')
+            # Compute the regularizatin loss.
+            regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES) # This is a list of the individual loss values, so we still need to sum them up.
+            regularization_loss = tf.add_n(regularization_losses, name='regularization_loss') # Scalar
             # Compute the loss.
-            loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.labels, logits=self.fcn8s_output), name='loss')
+            approximation_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.labels, logits=self.fcn8s_output), name='approximation_loss') # Scalar
+            total_loss = tf.add(approximation_loss, regularization_loss, name='total_loss')
             # Compute the gradients and apply them.
             optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, name='adam_optimizer')
-            train_op = optimizer.minimize(loss, global_step=global_step, name='train_op')
+            train_op = optimizer.minimize(total_loss, global_step=global_step, name='train_op')
 
         return loss, train_op, learning_rate, global_step
 
