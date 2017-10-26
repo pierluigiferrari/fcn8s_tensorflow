@@ -396,6 +396,7 @@ class FCN8s:
               save_dir=None,
               save_best_only=True,
               save_tags=['default'],
+              save_name='',
               save_frequency=5,
               monitor='loss',
               record_summaries=True,
@@ -449,6 +450,13 @@ class FCN8s:
             save_tags (list, optional): An optional list of tags to save the model metagraph
                 with in the SavedModel protocol buffer. Defaults to a list only containing
                 the tag 'default'. At least one tag must be given.
+            save_name (string, optional): An optional name string to include in the name of
+                the folder in which the model will be saved during training. Note that what
+                you pass as the name here will be only part of the folder name. The folder
+                name also includes a count of the global training step and the values of
+                any metrics that are being evaluate, although at least the training loss.
+                It is hence not necessary to pass a name here, each saved model will be
+                uniquely and descriptively named regardless. Defaults to the empty string.
             save_frequency (int, optional): The model will be saved at most after every
                 `save_frequency` epochs, but possibly less often if `save_best_only` is `True`
                 and if there was no improvement in the monitored metric. Defaults to 5.
@@ -605,7 +613,7 @@ class FCN8s:
                 if save:
                     self.save(model_save_dir=save_dir,
                               tags=save_tags,
-                              name=None,
+                              name=save_name,
                               include_global_step=True,
                               include_last_training_loss=True,
                               include_metrics=(len(self.metric_names) > 0))
