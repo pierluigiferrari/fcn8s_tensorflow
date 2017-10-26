@@ -41,4 +41,4 @@ Below are some prediction examples of the model trained on the [KITTI Vision Roa
 
 ### Download pre-trained VGG-16
 
-You can download the convolutionalized VGG-16 model [here]()
+You can download the convolutionalized VGG-16 model [here](https://drive.google.com/open?id=0B0WbA4IemlxlWlpBd2NBeFUteEE)
