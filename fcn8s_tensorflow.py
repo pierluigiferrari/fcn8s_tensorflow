@@ -12,15 +12,13 @@ import numpy as np
 import time
 
 from helpers.tf_variable_summaries import add_variable_summaries
-from helpers.visualization_utils import print_segmentation_onto_image
+from helpers.visualization_utils import print_segmentation_onto_image, create_split_view
 
 class FCN8s:
 
-    def __init__(self, variables_load_dir=None, model_load_dir=None, tags=None, vgg16_dir=None, num_classes=None):
+    def __init__(self, model_load_dir=None, tags=None, vgg16_dir=None, num_classes=None, variables_load_dir=None):
         '''
         Arguments:
-            variables_load_dir (string, optional): The path to variables that were saved with `tf.train.Saver`.
-                Only relevant if `model_load_dir` is `None`.
             model_load_dir (string, optional): The directory path to a `SavedModel`, i.e. to the directory
                 that contains a saved FCN-8s model protocol buffer. If a path is provided, the targeted model will
                 be loaded. If no path is given, the model will be built from scratch on top of a pre-trained,
@@ -32,6 +30,8 @@ class FCN8s:
                 `model_load_dir` and `vgg16_dir` may not both be `None`.
             num_classes (int, optional): Only relevant if no path to a saved FCN-8s model is given in `model_load_dir`.
                 The number of segmentation classes.
+            variables_load_dir (string, optional): The path to variables that were saved with `tf.train.Saver`.
+                Only relevant if `model_load_dir` is `None`.
         '''
         # Check TensorFlow version
         assert LooseVersion(tf.__version__) >= LooseVersion('1.0'), 'This program requires TensorFlow version 1.0 or newer. You are using {}'.format(tf.__version__)
@@ -761,16 +761,23 @@ class FCN8s:
                                  feed_dict={self.image_input: images,
                                             self.keep_prob: 1.0})
 
-    def predict_and_save(self, results_dir, images_dir, image_size, color_map):
+    def predict_and_save(self,
+                         results_dir,
+                         images_dir,
+                         color_map,
+                         resize=False,
+                         image_file_extension='png',
+                         include_unprocessed_image=False,
+                         arrangement='vertical',
+                         overwrite_existing=True):
         '''
+        Makes predictions for all images in a given directory, overlays a copy of the
+        input images with the respective predictions, and saves the resulting images to disk.
 
         Arguments:
             results_dir (string): The directory in which to save the annotated prediction
-                output images. The images will be put inside a folder within this directory
-                whose name is will be the current time stamp.
+                output images.
             images_dir (string): The directory in which the images to be processed are located.
-            image_size (tuple): A tuple of the form `(image_height, image_width)` that
-                represents the size to which all images will be resized.
             color_map (dictionary): A Python dictionary whose keys are non-negative
                 integers representing segmentation classes and whose values are 1D tuples
                 (or lists, Numpy arrays) of length 4 that represent the RGBA color values
@@ -779,16 +786,30 @@ class FCN8s:
                 this means that all pixels in the predicted image segmentation that belong
                 to segmentation class 1 will be colored in green with 50% transparency
                 in the input image.
+            resize (tuple): `False` or a tuple of the form `(image_height, image_width)` that
+                represents the size to which all images will be resized.
+            image_file_extension (string, optional): The file extension of the
+                images in the datasets. Must be identical for all images in all
+                datasets in `datasets`. Defaults to `png`.
+            include_unprocessed_image (bool, optional): If `True`, creates split view images
+                containing both the input image and the overlayed segmented image.
+                Defaults to `False`.
+            arrangement (string, optional): Only relevant if `include_unprocessed_image` is `True`.
+                Determines the arrangement for the split view. Can be either of 'vertical', meaning
+                the processed and unprocessed images will be above each other, or 'horizontal',
+                meaning the processed and unprocessed images will be next to each other.
+                Defaults to 'vertical'.
+            overwrite_existing (bool, optional): If `True`, overwrites the output directory
+                in case it already exists.
         '''
 
         # Make a directory in which to store the results.
-        output_dir = os.path.join(results_dir, str(time.time()))
-        if os.path.exists(output_dir):
-            shutil.rmtree(output_dir)
-        os.makedirs(output_dir)
+        if overwrite_existing and os.path.exists(results_dir):
+            shutil.rmtree(results_dir)
+        os.makedirs(results_dir)
 
-        image_filepath_list = glob(os.path.join(images_dir, '*.png'))
-        num_images = len(image_filepath_list)
+        image_paths = glob(os.path.join(images_dir, '*.' + image_file_extension))
+        num_images = len(image_paths)
 
         print('The segmented images will be saved to "{}"'.format(results_dir))
 
@@ -797,16 +818,33 @@ class FCN8s:
 
         for i in tr:
 
-            filepath = image_filepath_list[i]
-            image = scipy.misc.imresize(scipy.misc.imread(filepath), image_size)
+            filepath = image_paths[i]
 
-            prediction = self.sess.run(self.softmax_output,
-                                       feed_dict={self.image_input: [image],
-                                                  self.keep_prob: 1.0})
+            image = scipy.misc.imread(filepath)
+            if resize and not np.array_equal(image.shape[:2], resize):
+                image = scipy.misc.imresize(image, resize)
+            img_height, img_width, img_ch = image.shape
 
-            output_image = print_segmentation_onto_image(image, prediction, color_map)
+            prediction = self.predict([image], argmax=False)
+            processed_image = np.asarray(print_segmentation_onto_image(image=image, prediction=prediction, color_map=color_map), dtype=np.uint8)
 
-            scipy.misc.imsave(os.path.join(output_dir, os.path.basename(filepath)), output_image)
+            if include_unprocessed_image:
+                if arrangement == 'vertical':
+                    output_width = img_width
+                    output_height = 2 * img_height
+                    processed_image = create_split_view(target_size=(output_height, output_width),
+                                                        images=[processed_image, image],
+                                                        positions=[(0, 0), (img_height, 0)],
+                                                        sizes=[(img_height, img_width), (img_height, img_width)])
+                else:
+                    output_width = 2 * img_width
+                    output_height = img_height
+                    processed_image = create_split_view(target_size=(output_height, output_width),
+                                                        images=[processed_image, image],
+                                                        positions=[(0, 0), (0, img_width)],
+                                                        sizes=[(img_height, img_width), (img_height, img_width)])
+
+            scipy.misc.imsave(os.path.join(results_dir, os.path.basename(filepath)), processed_image)
 
     def save(self,
              model_save_dir,
