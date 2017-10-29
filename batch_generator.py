@@ -33,19 +33,11 @@ class BatchGenerator():
             image_file_extension (string, optional): The file extension of the
                 images in the datasets. Must be identical for all images in all
                 datasets in `datasets`. Defaults to `png`.
-            ground_truth_dirs (list, optional): An optional list of directory paths,
+            ground_truth_dirs (list, optional): `None` or a list of directory paths,
                 each of which contain the ground truth images that correspond to
                 the respective directory paths in `datasets`. The ground truth
                 images must have 1 channel that encodes the segmentation classes
                 numbered consecutively from 0 to `n`, where `n` is an integer.
-                It is possible to define a list of void/background class labels
-                that will all be mapped to one user-definable background class ID.
-                This might be relevant for datasets where some void classes are
-                labeled with -1 or 255. In any case, all class labels must end up
-                being consecutive integers, starting at 0. This list can be empty,
-                in which case the generator will yield only images, no ground
-                truth images. The length of this list must be either zero or
-                the same as the length of `image_dirs`.
             image_name_split_separator (string, optional): Only relevant if
                 `ground_truth_dirs` contains at least one item. A string by which
                 the image names will be split into a left and right part, the left
@@ -89,7 +81,7 @@ class BatchGenerator():
         self.dataset_size = 0
         self.ground_truth = False # Whether or not ground truth images were given.
 
-        if len(self.image_dirs) != len(self.ground_truth_dirs):
+        if (not self.ground_truth_dirs is None) and (len(self.image_dirs) != len(self.ground_truth_dirs)):
             raise ValueError("`image_dirs` and `ground_truth_dirs` must contain the same number of elements.")
 
         image_file_extension = image_file_extension.lower()
@@ -473,7 +465,7 @@ class BatchGenerator():
         tr.set_description('Processing images')
 
         for batch in tr:
-            images, gt_images = next(preprocessor)
+                next(preprocessor)
 
 
 def _brightness(image, min=0.5, max=2.0):
