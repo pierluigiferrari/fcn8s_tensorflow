@@ -340,6 +340,14 @@ class FCN8s:
         add_variable_summaries(variable=graph.get_tensor_by_name('fc7_pool4_conv2d_trans/bias:0'), scope='fc7_pool4_conv2d_trans/bias')
         add_variable_summaries(variable=graph.get_tensor_by_name('fc7_pool4_pool3_conv2d_trans/kernel:0'), scope='fc7_pool4_pool3_conv2d_trans/kernel')
         add_variable_summaries(variable=graph.get_tensor_by_name('fc7_pool4_pool3_conv2d_trans/bias:0'), scope='fc7_pool4_pool3_conv2d_trans/bias')
+        add_variable_summaries(variable=graph.get_tensor_by_name('fc7/weights:0'), scope='fc7/kernel')
+        add_variable_summaries(variable=graph.get_tensor_by_name('fc7/biases:0'), scope='fc7/bias')
+        add_variable_summaries(variable=graph.get_tensor_by_name('fc6/weights:0'), scope='fc6/kernel')
+        add_variable_summaries(variable=graph.get_tensor_by_name('fc6/biases:0'), scope='fc6/bias')
+        add_variable_summaries(variable=graph.get_tensor_by_name('conv4_3/filter:0'), scope='conv4_3/kernel')
+        add_variable_summaries(variable=graph.get_tensor_by_name('conv4_3/biases:0'), scope='conv4_3/bias')
+        add_variable_summaries(variable=graph.get_tensor_by_name('conv3_3/filter:0'), scope='conv3_3/kernel')
+        add_variable_summaries(variable=graph.get_tensor_by_name('conv3_3/biases:0'), scope='conv3_3/bias')
 
         # Loss and learning rate.
         tf.summary.scalar('total_loss', self.total_loss)
