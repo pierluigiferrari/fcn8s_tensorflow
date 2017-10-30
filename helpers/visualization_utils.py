@@ -104,7 +104,8 @@ def create_video_from_images(video_output_name, image_input_dir, frame_rate=30.0
     Creates an MP4 video from the images in a given directory.
 
     Arguments:
-        video_output_name (string): The full path and name of the output video.
+        video_output_name (string): The full path and name of the output video
+            excluding the file extension. The output video will be in MP4 format.
         image_input_dir (string): The directory that contains the input images.
         frame_rate (float, optional): The number of frames per second.
         image_file_extension: The file extension of the source images. Only images
