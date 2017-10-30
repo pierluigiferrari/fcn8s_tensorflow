@@ -94,7 +94,5 @@ ENV/
 # Rope project settings
 .ropeproject
 
-# Custom folders related to TensorFlow and this model
-saved_model*
-tensorboard_log/
-test_results/
+# Various files that are not to be tracked go into this folder
+local/
