@@ -1,5 +1,8 @@
 ## FCN-8s implementation in TensorFlow
 
+### Preface
+This repository is forked from **pierluigiferrari/fcn8s_tensorflow.** 
+
 ### Contents
 
 1. [Overview](#overview)
