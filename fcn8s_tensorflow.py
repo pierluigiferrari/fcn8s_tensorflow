@@ -14,6 +14,7 @@ import time
 from helpers.tf_variable_summaries import add_variable_summaries
 from helpers.visualization_utils import print_segmentation_onto_image, create_split_view
 
+
 class FCN8s:
 
     def __init__(self, model_load_dir=None, tags=None, vgg16_dir=None, num_classes=None, variables_load_dir=None):
@@ -34,11 +35,13 @@ class FCN8s:
                 Only relevant if `model_load_dir` is `None`.
         '''
         # Check TensorFlow version
-        assert LooseVersion(tf.__version__) >= LooseVersion('1.0'), 'This program requires TensorFlow version 1.0 or newer. You are using {}'.format(tf.__version__)
+        assert LooseVersion(tf.__version__) >= LooseVersion(
+            '1.0'), 'This program requires TensorFlow version 1.0 or newer. You are using {}'.format(tf.__version__)
         print('TensorFlow Version: {}'.format(tf.__version__))
 
         if (model_load_dir is None) and (vgg16_dir is None or num_classes is None):
-            raise ValueError("You must provide either both `model_load_dir` and `tags` or both `vgg16_dir` and `num_classes`.")
+            raise ValueError(
+                "You must provide either both `model_load_dir` and `tags` or both `vgg16_dir` and `num_classes`.")
 
         self.variables_load_dir = variables_load_dir
         self.model_load_dir = model_load_dir
@@ -47,29 +50,29 @@ class FCN8s:
         self.vgg16_tag = 'vgg16'
         self.num_classes = num_classes
 
-        self.variables_updated = False # Keep track of whether any variable values changed since this model was last saved.
-        self.eval_dataset = None # Which dataset to use for evaluation during training. Only relevant for training.
+        self.variables_updated = False  # Keep track of whether any variable values changed since this model was last saved.
+        self.eval_dataset = None  # Which dataset to use for evaluation during training. Only relevant for training.
 
         # The following lists store data about the metrics being tracked.
         # Note that `self.metric_value_tensors` and `self.metric_update_ops` represent
         # the metrics being tracked, not the metrics generally available in the model.
-        self.metric_names = [] # Store the metric names here.
-        self.metric_values = [] # Store the latest metric evaluations here.
-        self.best_metric_values = [] # Keep score of the best historical metric values.
-        self.metric_value_tensors = [] # Store the value tensors from tf.metrics here.
-        self.metric_update_ops = [] # Store the update ops from tf.metrics here.
+        self.metric_names = []  # Store the metric names here.
+        self.metric_values = []  # Store the latest metric evaluations here.
+        self.best_metric_values = []  # Keep score of the best historical metric values.
+        self.metric_value_tensors = []  # Store the value tensors from tf.metrics here.
+        self.metric_update_ops = []  # Store the update ops from tf.metrics here.
 
         self.training_loss = None
         self.best_training_loss = 99999999.9
 
         self.sess = tf.Session()
-        self.g_step = None # The global step
+        self.g_step = None  # The global step
 
         ##################################################################
         # Load or build the model.
         ##################################################################
 
-        if not model_load_dir is None: # Load the full pre-trained model.
+        if not model_load_dir is None:  # Load the full pre-trained model.
 
             tf.saved_model.loader.load(sess=self.sess, tags=self.tags, export_dir=self.model_load_dir)
             graph = tf.get_default_graph()
@@ -100,14 +103,15 @@ class FCN8s:
             # metrics need to be initialized after loading the model.
             self.sess.run(self.metrics_reset_op)
 
-        else: # Load only the pre-trained VGG-16 encoder and build the rest of the graph from scratch.
+        else:  # Load only the pre-trained VGG-16 encoder and build the rest of the graph from scratch.
 
             # Load the pretrained convolutionalized VGG-16 model as our encoder.
             self.image_input, self.keep_prob, self.pool3_out, self.pool4_out, self.fc7_out = self._load_vgg16()
             # Build the decoder on top of the VGG-16 encoder.
             self.fcn8s_output, self.l2_regularization_rate = self._build_decoder()
             # Build the part of the graph that is relevant for the training.
-            self.labels = tf.placeholder(dtype=tf.int32, shape=[None, None, None, self.num_classes], name='labels_input')
+            self.labels = tf.placeholder(dtype=tf.int32, shape=[None, None, None, self.num_classes],
+                                         name='labels_input')
             self.total_loss, self.train_op, self.learning_rate, self.global_step = self._build_optimizer()
             # Add the prediction outputs.
             self.softmax_output, self.predictions_argmax = self._build_predictor()
@@ -152,17 +156,17 @@ class FCN8s:
         return image_input, keep_prob, pool3_out, pool4_out, fc7_out
 
     def _build_decoder(self):
-        '''
+        """
         Builds the FCN-8s decoder given the pool3, pool4, and fc7 outputs of the VGG-16 encoder.
-        '''
+        """
 
-        stddev_1x1 = 0.001 # Standard deviation for the 1x1 kernel initializers
-        stddev_conv2d_trans = 0.01 # Standard deviation for the convolution transpose kernel initializers
+        stddev_1x1 = 0.001  # Standard deviation for the 1x1 kernel initializers
+        stddev_conv2d_trans = 0.01  # Standard deviation for the convolution transpose kernel initializers
 
-        l2_regularization_rate = tf.placeholder(dtype=tf.float32, shape=[], name='l2_regularization_rate') # L2 regularization rate for the kernels
+        l2_regularization_rate = tf.placeholder(dtype=tf.float32, shape=[],
+                                                name='l2_regularization_rate')  # L2 regularization rate for the kernels
 
         with tf.name_scope('decoder'):
-
             # 1: Append 1x1 convolutions to the three output layers of the encoder to reduce the Number
             #    of channels to the number of classes.
 
@@ -206,8 +210,10 @@ class FCN8s:
                                                           kernel_size=(4, 4),
                                                           strides=(2, 2),
                                                           padding='same',
-                                                          kernel_initializer=tf.truncated_normal_initializer(stddev=stddev_conv2d_trans),
-                                                          kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_regularization_rate),
+                                                          kernel_initializer=tf.truncated_normal_initializer(
+                                                              stddev=stddev_conv2d_trans),
+                                                          kernel_regularizer=tf.contrib.layers.l2_regularizer(
+                                                              l2_regularization_rate),
                                                           name='fc7_conv2d_trans')
 
             add_fc7_pool4 = tf.add(fc7_conv2d_trans, pool4_1x1, name='add_fc7_pool4')
@@ -217,8 +223,10 @@ class FCN8s:
                                                                 kernel_size=(4, 4),
                                                                 strides=(2, 2),
                                                                 padding='same',
-                                                                kernel_initializer=tf.truncated_normal_initializer(stddev=stddev_conv2d_trans),
-                                                                kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_regularization_rate),
+                                                                kernel_initializer=tf.truncated_normal_initializer(
+                                                                    stddev=stddev_conv2d_trans),
+                                                                kernel_regularizer=tf.contrib.layers.l2_regularizer(
+                                                                    l2_regularization_rate),
                                                                 name='fc7_pool4_conv2d_trans')
 
             add_fc7_pool4_pool3 = tf.add(fc7_pool4_conv2d_trans, pool3_1x1, name='add_fc7_pool4_pool3')
@@ -228,8 +236,10 @@ class FCN8s:
                                                                       kernel_size=(16, 16),
                                                                       strides=(8, 8),
                                                                       padding='same',
-                                                                      kernel_initializer=tf.truncated_normal_initializer(stddev=stddev_conv2d_trans),
-                                                                      kernel_regularizer=tf.contrib.layers.l2_regularizer(l2_regularization_rate),
+                                                                      kernel_initializer=tf.truncated_normal_initializer(
+                                                                          stddev=stddev_conv2d_trans),
+                                                                      kernel_regularizer=tf.contrib.layers.l2_regularizer(
+                                                                          l2_regularization_rate),
                                                                       name='fc7_pool4_pool3_conv2d_trans')
 
             fcn8s_output = tf.identity(fc7_pool4_pool3_conv2d_trans, name='fcn8s_output')
@@ -247,10 +257,13 @@ class FCN8s:
             # Create placeholder for the learning rate.
             learning_rate = tf.placeholder(dtype=tf.float32, shape=[], name='learning_rate')
             # Compute the regularizatin loss.
-            regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES) # This is a list of the individual loss values, so we still need to sum them up.
-            regularization_loss = tf.add_n(regularization_losses, name='regularization_loss') # Scalar
+            regularization_losses = tf.get_collection(
+                tf.GraphKeys.REGULARIZATION_LOSSES)  # This is a list of the individual loss values, so we still need to sum them up.
+            regularization_loss = tf.add_n(regularization_losses, name='regularization_loss')  # Scalar
             # Compute the total loss.
-            approximation_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=self.labels, logits=self.fcn8s_output), name='approximation_loss') # Scalar
+            approximation_loss = tf.reduce_mean(
+                tf.nn.softmax_cross_entropy_with_logits(labels=self.labels, logits=self.fcn8s_output),
+                name='approximation_loss')  # Scalar
             total_loss = tf.add(approximation_loss, regularization_loss, name='total_loss')
             # Compute the gradients and apply them.
             optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, name='adam_optimizer')
@@ -264,7 +277,6 @@ class FCN8s:
         '''
 
         with tf.name_scope('predictor'):
-
             softmax_output = tf.nn.softmax(self.fcn8s_output, name='softmax_output')
             predictions_argmax = tf.argmax(softmax_output, axis=-1, name='predictions_argmax', output_type=tf.int64)
 
@@ -276,7 +288,6 @@ class FCN8s:
         '''
 
         with tf.variable_scope('metrics') as scope:
-
             labels_argmax = tf.argmax(self.labels, axis=-1, name='labels_argmax', output_type=tf.int64)
 
             # 1: Mean loss
@@ -334,12 +345,18 @@ class FCN8s:
         add_variable_summaries(variable=graph.get_tensor_by_name('pool4_1x1/bias:0'), scope='pool4_1x1/bias')
         add_variable_summaries(variable=graph.get_tensor_by_name('fc7_1x1/kernel:0'), scope='fc7_1x1/kernel')
         add_variable_summaries(variable=graph.get_tensor_by_name('fc7_1x1/bias:0'), scope='fc7_1x1/bias')
-        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_conv2d_trans/kernel:0'), scope='fc7_conv2d_trans/kernel')
-        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_conv2d_trans/bias:0'), scope='fc7_conv2d_trans/bias')
-        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_pool4_conv2d_trans/kernel:0'), scope='fc7_pool4_conv2d_trans/kernel')
-        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_pool4_conv2d_trans/bias:0'), scope='fc7_pool4_conv2d_trans/bias')
-        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_pool4_pool3_conv2d_trans/kernel:0'), scope='fc7_pool4_pool3_conv2d_trans/kernel')
-        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_pool4_pool3_conv2d_trans/bias:0'), scope='fc7_pool4_pool3_conv2d_trans/bias')
+        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_conv2d_trans/kernel:0'),
+                               scope='fc7_conv2d_trans/kernel')
+        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_conv2d_trans/bias:0'),
+                               scope='fc7_conv2d_trans/bias')
+        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_pool4_conv2d_trans/kernel:0'),
+                               scope='fc7_pool4_conv2d_trans/kernel')
+        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_pool4_conv2d_trans/bias:0'),
+                               scope='fc7_pool4_conv2d_trans/bias')
+        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_pool4_pool3_conv2d_trans/kernel:0'),
+                               scope='fc7_pool4_pool3_conv2d_trans/kernel')
+        add_variable_summaries(variable=graph.get_tensor_by_name('fc7_pool4_pool3_conv2d_trans/bias:0'),
+                               scope='fc7_pool4_pool3_conv2d_trans/bias')
         add_variable_summaries(variable=graph.get_tensor_by_name('fc7/weights:0'), scope='fc7/kernel')
         add_variable_summaries(variable=graph.get_tensor_by_name('fc7/biases:0'), scope='fc7/bias')
         add_variable_summaries(variable=graph.get_tensor_by_name('fc6/weights:0'), scope='fc6/kernel')
@@ -516,10 +533,13 @@ class FCN8s:
 
         for metric in metrics:
             if not metric in ['loss', 'mean_iou', 'accuracy']:
-                raise ValueError("{} is not a valid metric. Valid metrics are ['loss', mean_iou', 'accuracy']".format(metric))
+                raise ValueError(
+                    "{} is not a valid metric. Valid metrics are ['loss', mean_iou', 'accuracy']".format(metric))
 
         if (not monitor in metrics) and (not monitor == 'loss'):
-            raise ValueError('You are trying to monitor {}, but it is not in `metrics` and is therefore not being computed.'.format(monitor))
+            raise ValueError(
+                'You are trying to monitor {}, but it is not in `metrics` and is therefore not being computed.'.format(
+                    monitor))
 
         self.eval_dataset = eval_dataset
 
@@ -533,9 +553,9 @@ class FCN8s:
             training_writer = tf.summary.FileWriter(logdir=os.path.join(summaries_dir, summaries_name),
                                                     graph=self.sess.graph)
             if len(metrics) > 0:
-                evaluation_writer = tf.summary.FileWriter(logdir=os.path.join(summaries_dir, summaries_name+'_eval'))
+                evaluation_writer = tf.summary.FileWriter(logdir=os.path.join(summaries_dir, summaries_name + '_eval'))
 
-        for epoch in range(1, epochs+1):
+        for epoch in range(1, epochs + 1):
 
             ##############################################################
             # Run the training for this epoch.
@@ -555,11 +575,12 @@ class FCN8s:
                                                                                     self.total_loss,
                                                                                     self.global_step,
                                                                                     self.summaries_training],
-                                                                                   feed_dict={self.image_input: batch_images,
-                                                                                              self.labels: batch_labels,
-                                                                                              self.learning_rate: learning_rate,
-                                                                                              self.keep_prob: keep_prob,
-                                                                                              self.l2_regularization_rate: l2_regularization})
+                                                                                   feed_dict={
+                                                                                       self.image_input: batch_images,
+                                                                                       self.labels: batch_labels,
+                                                                                       self.learning_rate: learning_rate,
+                                                                                       self.keep_prob: keep_prob,
+                                                                                       self.l2_regularization_rate: l2_regularization})
                     training_writer.add_summary(summary=training_summary, global_step=self.g_step)
                 else:
                     _, current_loss, self.g_step = self.sess.run([self.train_op,
@@ -616,14 +637,15 @@ class FCN8s:
                 save = False
                 if save_best_only:
                     if (monitor == 'loss' and
-                        (not 'loss' in self.metric_names) and
-                        self.training_loss < self.best_training_loss):
+                            (not 'loss' in self.metric_names) and
+                            self.training_loss < self.best_training_loss):
                         save = True
                     else:
                         i = self.metric_names.index(monitor)
                         if (monitor == 'loss') and (self.metric_values[i] < self.best_metric_values[i]):
                             save = True
-                        elif (monitor in ['accuracry', 'mean_iou']) and (self.metric_values[i] > self.best_metric_values[i]):
+                        elif (monitor in ['accuracry', 'mean_iou']) and (
+                                self.metric_values[i] > self.best_metric_values[i]):
                             save = True
                     if save:
                         print('New best {} value, saving model.'.format(monitor))
@@ -641,7 +663,6 @@ class FCN8s:
                               include_last_training_loss=True,
                               include_metrics=(len(self.metric_names) > 0))
 
-
             ##############################################################
             # Update the current best metric values.
             ##############################################################
@@ -654,7 +675,8 @@ class FCN8s:
                 for i, metric_name in enumerate(self.metric_names):
                     if (metric_name == 'loss') and (self.metric_values[i] < self.best_metric_values[i]):
                         self.best_metric_values[i] = self.metric_values[i]
-                    elif (metric_name in ['accuracry', 'mean_iou']) and (self.metric_values[i] > self.best_metric_values[i]):
+                    elif (metric_name in ['accuracry', 'mean_iou']) and (
+                            self.metric_values[i] > self.best_metric_values[i]):
                         self.best_metric_values[i] = self.metric_values[i]
 
     def _evaluate(self, data_generator, metrics, num_batches, l2_regularization, description='Running evaluation'):
@@ -679,7 +701,6 @@ class FCN8s:
 
         # Accumulate metrics in batches.
         for step in tr:
-
             batch_images, batch_labels = next(data_generator)
 
             self.sess.run(self.metric_update_ops,
@@ -696,7 +717,8 @@ class FCN8s:
             evaluation_results_string += metric_name + ': {:.4f}  '.format(self.metric_values[i])
         print(evaluation_results_string)
 
-    def evaluate(self, data_generator, num_batches, metrics={'loss', 'mean_iou', 'accuracy'}, l2_regularization=0.0, dataset='val'):
+    def evaluate(self, data_generator, num_batches, metrics={'loss', 'mean_iou', 'accuracy'}, l2_regularization=0.0,
+                 dataset='val'):
         '''
         Evaluates the model on the given metrics on the data generated by `data_generator`.
 
@@ -726,7 +748,8 @@ class FCN8s:
 
         for metric in metrics:
             if not metric in ['loss', 'mean_iou', 'accuracy']:
-                raise ValueError("{} is not a valid metric. Valid metrics are ['loss', mean_iou', 'accuracy']".format(metric))
+                raise ValueError(
+                    "{} is not a valid metric. Valid metrics are ['loss', mean_iou', 'accuracy']".format(metric))
 
         if not dataset in {'train', 'val'}:
             raise ValueError("`dataset` must be either 'train' or 'val'.")
@@ -834,7 +857,8 @@ class FCN8s:
             img_height, img_width, img_ch = image.shape
 
             prediction = self.predict([image], argmax=False)
-            processed_image = np.asarray(print_segmentation_onto_image(image=image, prediction=prediction, color_map=color_map), dtype=np.uint8)
+            processed_image = np.asarray(
+                print_segmentation_onto_image(image=image, prediction=prediction, color_map=color_map), dtype=np.uint8)
 
             if include_unprocessed_image:
                 if arrangement == 'vertical':
@@ -896,7 +920,9 @@ class FCN8s:
             return
 
         if not saver in {'saved_model', 'train_saver'}:
-            raise ValueError("Unexpected value for `saver`: Can be either 'saved_model' or 'train_saver', but received '{}'.".format(saver))
+            raise ValueError(
+                "Unexpected value for `saver`: Can be either 'saved_model' or 'train_saver', but received '{}'.".format(
+                    saver))
 
         if self.training_loss is None:
             include_last_training_loss = False
