@@ -3,13 +3,15 @@ import random
 import os
 import sys
 import pathlib
-import scipy.misc
+import imageio
 import cv2
 from glob import glob
 from math import ceil
 from tqdm import trange
 
-from helpers.ground_truth_conversion_utils import convert_IDs_to_IDs, convert_IDs_to_one_hot
+from helpers.ground_truth_conversion_utils import convert_IDs_to_IDs, convert_IDs_to_one_hot, \
+    convert_between_IDs_and_colors, convert_IDs_to_IDs_partial
+
 
 class BatchGenerator():
 
@@ -244,14 +246,14 @@ class BatchGenerator():
             for image_path in self.image_paths[current:current+batch_size]: # Careful: This works in Python, but might cause an 'index out of bounds' error in other languages if `current+batch_size > len(image_paths)`
 
                 # Load the image
-                image = scipy.misc.imread(image_path)
+                image = imageio.imread(image_path)
                 img_height, img_width, img_ch = image.shape
 
                 # If at least one ground truth directory was given, load the ground truth images.
                 if self.ground_truth:
 
                     gt_image_path = self.ground_truth_paths[os.path.basename(image_path)]
-                    gt_image = scipy.misc.imread(gt_image_path)
+                    gt_image = imageio.imread(gt_image_path)
                     gt_dtype = gt_image.dtype
 
                     if not convert_colors_to_ids is False:
@@ -396,14 +398,14 @@ class BatchGenerator():
                     image_save_directory_path = os.path.dirname(image_save_file_path)
                     pathlib.Path(image_save_directory_path).mkdir(parents=True, exist_ok=True)
                     # Save the image.
-                    scipy.misc.imsave(image_save_file_path, image)
+                    imageio.imsave(image_save_file_path, image)
                     if self.ground_truth:
                         # Create the directory (including parents) if it doesn't already exist.
                         gt_image_save_file_path = os.path.join(self.export_dir, os.path.relpath(gt_image_path, start=self.root_dir))
                         gt_image_save_directory_path = os.path.dirname(gt_image_save_file_path)
                         pathlib.Path(gt_image_save_directory_path).mkdir(parents=True, exist_ok=True)
                         # Save the ground truth image.
-                        scipy.misc.imsave(gt_image_save_file_path, gt_image)
+                        imageio.imsave(gt_image_save_file_path, gt_image)
 
                 # Append the processed image (and maybe ground truth image) to this batch.
                 images.append(image)
